@@ -288,10 +288,18 @@ in under a second.
 * `test_training` — five packed training steps agree with an independent
   unpacked reference implementation of the same local-loss algorithm to 1e-9 on
   all four layers, and training converges on a separable synthetic task.
-* End to end under CKKS, on the forked OpenFHE 1.2.3 with
-  `--key-mode imperative`: keys are provisioned per level, paged in per
-  rotation and cleared, and the run finishes with nothing resident
-  (`KeyMemRT Stats: Keys loaded: 0`).
+* End to end under CKKS on the forked OpenFHE 1.2.3, without bootstrapping
+  (N = 2^13, one local-loss block): identical loss and accuracy under
+  `--key-mode ignore` and `--key-mode imperative`, the same 138 rotations, and
+  the imperative run finishes with nothing resident
+  (`KeyMemRT Stats: Keys loaded: 0`). The paging cost is visible and is the
+  trade-off KeyMemRT exists to quantify: 3.9 s per step resident against
+  10.2 s per step paged, on a 4-core container with the keys on local disk.
+* With bootstrapping enabled (N = 2^14, level budget 3,3): the bootstrapping
+  keys are written as a bundle, staged around the weight refresh and dropped
+  again, and a full training step - forward, local updates, and a bootstrap of
+  every weight and velocity ciphertext - completes with the rotation keys still
+  paged one at a time.
 
 Not yet done: a like-for-like memory and latency comparison against ReBoot's own
 numbers at the paper's parameters (N = 2^16/2^17, eMLP-1/2/3, MNIST) — that
