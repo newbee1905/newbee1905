@@ -52,7 +52,7 @@ std::vector<int> to_int_list(const std::string &name, const std::string &text) {
 
 }  // namespace
 
-OptionParser &OptionParser::push(Option option) {
+option_parser_t &option_parser_t::push(option_t option) {
 	option.section = current_section_;
 	if (!option.section.empty() &&
 		std::find(section_order_.begin(), section_order_.end(),
@@ -62,58 +62,62 @@ OptionParser &OptionParser::push(Option option) {
 	return *this;
 }
 
-OptionParser &OptionParser::section(const std::string &title) {
+option_parser_t &option_parser_t::section(const std::string &title) {
 	current_section_ = title;
 	return *this;
 }
 
-OptionParser &OptionParser::add(const std::string &name, int &target,
-								const std::string &help) {
+option_parser_t &option_parser_t::add(const std::string &name, int &target,
+									  const std::string &help) {
 	return push(
 		{name, help, "", true, false,
 		 [&target, name](const std::string &v) { target = to_int(name, v); }});
 }
 
-OptionParser &OptionParser::add(const std::string &name, double &target,
-								const std::string &help) {
+option_parser_t &option_parser_t::add(const std::string &name, double &target,
+									  const std::string &help) {
 	return push(
 		{name, help, "", true, false, [&target, name](const std::string &v) {
 			 target = to_double(name, v);
 		 }});
 }
 
-OptionParser &OptionParser::add(const std::string &name, std::string &target,
-								const std::string &help) {
+option_parser_t &option_parser_t::add(const std::string &name,
+									  std::string &target,
+									  const std::string &help) {
 	return push({name, help, "", true, false,
 				 [&target](const std::string &v) { target = v; }});
 }
 
-OptionParser &OptionParser::add(const std::string &name,
-								std::vector<int> &target,
-								const std::string &help) {
+option_parser_t &option_parser_t::add(const std::string &name,
+									  std::vector<int> &target,
+									  const std::string &help) {
 	return push(
 		{name, help, "", true, false, [&target, name](const std::string &v) {
 			 target = to_int_list(name, v);
 		 }});
 }
 
-OptionParser &OptionParser::add_switch(const std::string &name, bool &target,
-									   bool value, const std::string &help) {
+option_parser_t &option_parser_t::add_switch(const std::string &name,
+											 bool &target, bool value,
+											 const std::string &help) {
 	return push({name, help, "", false, false,
 				 [&target, value](const std::string &) { target = value; }});
 }
 
-OptionParser &OptionParser::ignore(const std::string &name, bool takes_value) {
+option_parser_t &option_parser_t::ignore(const std::string &name,
+										 bool takes_value) {
 	return push({name, "", "", takes_value, true, nullptr});
 }
 
-const OptionParser::Option *OptionParser::find(const std::string &name) const {
-	for (const Option &option : options_)
+const option_parser_t::option_t *option_parser_t::find(
+	const std::string &name) const {
+	for (const option_t &option : options_)
 		if (option.name == name) return &option;
 	return nullptr;
 }
 
-bool OptionParser::parse(int argc, char **argv) {
+bool option_parser_t::parse(int argc, char **argv) {
 	for (int i = 1; i < argc; ++i) {
 		std::string argument = argv[i];
 		if (argument == "--help" || argument == "-h") {
@@ -132,7 +136,7 @@ bool OptionParser::parse(int argc, char **argv) {
 			inline_value = true;
 		}
 
-		const Option *option = find(argument);
+		const option_t *option = find(argument);
 		if (option == nullptr)
 			fail(fmt::format("unknown option '{}'; try --help", argument));
 
@@ -150,11 +154,11 @@ bool OptionParser::parse(int argc, char **argv) {
 	return true;
 }
 
-std::string OptionParser::help() const {
+std::string option_parser_t::help() const {
 	std::string out = fmt::format("{} - {}\n", program_, summary_);
 
 	size_t width = 0;
-	for (const Option &option : options_)
+	for (const option_t &option : options_)
 		if (!option.hidden) width = std::max(width, option.name.size());
 
 	std::vector<std::string> sections = section_order_;
@@ -164,7 +168,7 @@ std::string OptionParser::help() const {
 
 	for (const std::string &section : sections) {
 		bool printed_heading = false;
-		for (const Option &option : options_) {
+		for (const option_t &option : options_) {
 			if (option.hidden || option.section != section) continue;
 			if (!printed_heading) {
 				out += section.empty() ? "\n" : fmt::format("\n{}:\n", section);
@@ -179,7 +183,8 @@ std::string OptionParser::help() const {
 	return out;
 }
 
-void add_model_options(OptionParser &parser, ModelConfig &config, int &log_n) {
+void add_model_options(option_parser_t &parser, model_config_t &config,
+					   int &log_n) {
 	parser.section("Model")
 		.add("--hidden", config.hidden, "hidden layer widths, comma separated")
 		.add("--input-dim", config.input_dim, "input dimension")
@@ -193,7 +198,7 @@ void add_model_options(OptionParser &parser, ModelConfig &config, int &log_n) {
 		.add("--log-n", log_n, "log2 of the ring dimension");
 }
 
-void ignore_keymemrt_options(OptionParser &parser) {
+void ignore_keymemrt_options(option_parser_t &parser) {
 	for (const char *name :
 		 {"--key-mode", "--input-dir", "--output-dir", "--output-base",
 		  "--prefetch-sat", "--log-level", "--log-file"})

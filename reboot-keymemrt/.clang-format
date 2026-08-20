@@ -1,7 +1,9 @@
-# Google C++ style with tab indentation and snake_case naming.
+# Google C++ layout with tab indentation and snake_case naming throughout.
 #
-# Types stay CamelCase as Google prescribes; functions, variables and file names
-# are snake_case, and class members carry a trailing underscore.
+# Types take a _t suffix (option_parser_t), enumerators are plain snake case
+# inside their scoped enum, functions, variables and file names are snake_case,
+# and class members carry a trailing underscore.  Only foreign API names -
+# OpenFHE, KeyMemRT - keep their original spelling.
 BasedOnStyle: Google
 Language: Cpp
 Standard: c++17

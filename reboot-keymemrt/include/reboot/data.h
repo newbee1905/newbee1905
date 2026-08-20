@@ -19,7 +19,7 @@
 
 namespace reboot {
 
-struct Dataset {
+struct dataset_t {
 	std::vector<std::vector<double>> features;
 	std::vector<int> y;
 	int dim = 0;
@@ -30,8 +30,8 @@ struct Dataset {
 
 // Gaussian blobs with one centre per class, scaled into a range where the
 // degree-two PolyReLU stays well conditioned.
-inline Dataset make_blobs(int num_samples, int dim, int num_classes,
-						  unsigned seed, double spread = 0.35) {
+inline dataset_t make_blobs(int num_samples, int dim, int num_classes,
+							unsigned seed, double spread = 0.35) {
 	std::mt19937 rng(seed);
 	std::normal_distribution<double> noise(0.0, spread);
 	std::uniform_real_distribution<double> centre_dist(-1.0, 1.0);
@@ -41,7 +41,7 @@ inline Dataset make_blobs(int num_samples, int dim, int num_classes,
 	for (auto &c : centres)
 		for (auto &v : c) v = centre_dist(rng);
 
-	Dataset ds;
+	dataset_t ds;
 	ds.dim = dim;
 	ds.num_classes = num_classes;
 	ds.features.resize(num_samples, std::vector<double>(dim, 0.0));
@@ -58,10 +58,10 @@ inline Dataset make_blobs(int num_samples, int dim, int num_classes,
 	return ds;
 }
 
-inline Dataset load_csv(const std::string &path, bool has_header = true) {
+inline dataset_t load_csv(const std::string &path, bool has_header = true) {
 	std::ifstream f(path);
 	if (!f) throw std::runtime_error("cannot open dataset: " + path);
-	Dataset ds;
+	dataset_t ds;
 	std::string line;
 	if (has_header) std::getline(f, line);
 	int max_label = -1;
@@ -84,7 +84,7 @@ inline Dataset load_csv(const std::string &path, bool has_header = true) {
 }
 
 // Scale every feature to [-1, 1] using the training range.
-inline void normalise(Dataset &ds) {
+inline void normalise(dataset_t &ds) {
 	if (ds.features.empty()) return;
 	std::vector<double> lo(ds.features[0]), hi(ds.features[0]);
 	for (const auto &row : ds.features)
@@ -114,7 +114,7 @@ inline std::vector<double> one_hot(int label, int num_classes) {
 	return v;
 }
 
-inline void shuffle(Dataset &ds, std::mt19937 &rng) {
+inline void shuffle(dataset_t &ds, std::mt19937 &rng) {
 	std::vector<size_t> order(ds.size());
 	std::iota(order.begin(), order.end(), 0);
 	std::shuffle(order.begin(), order.end(), rng);

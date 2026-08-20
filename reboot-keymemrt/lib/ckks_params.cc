@@ -77,9 +77,9 @@ uint64_t find_prime(int bits, uint64_t modulus,
 
 }  // namespace
 
-ModulusChain generate_modulus_chain(const CkksParams &params) {
+modulus_chain_t generate_modulus_chain(const ckks_params_t &params) {
 	const uint64_t two_n = 2ull * static_cast<uint64_t>(params.ring_dim());
-	ModulusChain chain;
+	modulus_chain_t chain;
 	std::vector<uint64_t> used;
 
 	chain.q.push_back(find_prime(params.log_first_mod, two_n, used));
@@ -92,8 +92,8 @@ ModulusChain generate_modulus_chain(const CkksParams &params) {
 	return chain;
 }
 
-std::string scheme_param_attr(const CkksParams &params,
-							  const ModulusChain &chain) {
+std::string scheme_param_attr(const ckks_params_t &params,
+							  const modulus_chain_t &chain) {
 	std::string q;
 	for (size_t i = 0; i < chain.q.size(); ++i)
 		q += fmt::format("{}{}", i ? ", " : "", chain.q[i]);

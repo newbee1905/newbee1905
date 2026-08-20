@@ -30,7 +30,7 @@ void check(bool condition, const std::string &what) {
 }
 
 // parse() takes argc/argv, so tests hand it a real one.
-bool run(OptionParser &parser, const std::vector<std::string> &arguments) {
+bool run(option_parser_t &parser, const std::vector<std::string> &arguments) {
 	std::vector<std::string> storage{"program"};
 	storage.insert(storage.end(), arguments.begin(), arguments.end());
 	std::vector<char *> argv;
@@ -39,7 +39,7 @@ bool run(OptionParser &parser, const std::vector<std::string> &arguments) {
 }
 
 // Returns the error message, or "" when the parse succeeded.
-std::string error_of(OptionParser &parser,
+std::string error_of(option_parser_t &parser,
 					 const std::vector<std::string> &arguments) {
 	try {
 		run(parser, arguments);
@@ -59,7 +59,7 @@ void test_values() {
 	double rate = 0.0;
 	std::string path;
 	std::vector<int> widths;
-	OptionParser parser("test", "values");
+	option_parser_t parser("test", "values");
 	parser.add("--count", count, "")
 		.add("--rate", rate, "")
 		.add("--path", path, "")
@@ -74,7 +74,7 @@ void test_values() {
 	check(widths == std::vector<int>({64, 32, 16}), "--widths list");
 
 	std::vector<int> single;
-	OptionParser one("test", "values");
+	option_parser_t one("test", "values");
 	one.add("--widths", single, "");
 	run(one, {"--widths=32"});
 	check(single == std::vector<int>({32}), "single-element list");
@@ -83,7 +83,7 @@ void test_values() {
 void test_switches_and_ignored() {
 	fmt::print("switches and borrowed flags\n");
 	bool bootstrap = true;
-	OptionParser parser("test", "switches");
+	option_parser_t parser("test", "switches");
 	parser.add_switch("--no-bootstrap", bootstrap, false, "");
 	ignore_keymemrt_options(parser);
 
@@ -95,7 +95,7 @@ void test_switches_and_ignored() {
 	check(bootstrap == false, "switch applied");
 
 	int steps = 0;
-	OptionParser second("test", "switches");
+	option_parser_t second("test", "switches");
 	second.add("--steps", steps, "");
 	ignore_keymemrt_options(second);
 	run(second, {"--log-level", "error", "--steps", "9"});
@@ -106,7 +106,7 @@ void test_errors() {
 	fmt::print("errors name the flag that caused them\n");
 	int count = 0;
 	bool flag = false;
-	OptionParser parser("test", "errors");
+	option_parser_t parser("test", "errors");
 	parser.add("--count", count, "").add_switch("--flag", flag, true, "");
 
 	// The old hand-rolled loops read argv[++i] here, past the end.
@@ -136,7 +136,7 @@ void test_errors() {
 void test_help() {
 	fmt::print("help comes from the table\n");
 	int count = 0;
-	OptionParser parser("test", "a summary");
+	option_parser_t parser("test", "a summary");
 	parser.section("Model").add("--count", count, "how many");
 	check(!run(parser, {"--help"}), "--help stops the parse");
 
@@ -148,8 +148,8 @@ void test_help() {
 	check(contains(help, "--help"), "--help documents itself");
 }
 
-ModelConfig sample_config() {
-	ModelConfig config;
+model_config_t sample_config() {
+	model_config_t config;
 	config.input_dim = 6;
 	config.hidden = {8, 4};
 	config.num_classes = 3;
@@ -162,16 +162,16 @@ ModelConfig sample_config() {
 void test_manifest() {
 	fmt::print("manifest round trip and verification\n");
 
-	const ModelConfig config = sample_config();
-	const Layout layout = recommend_layout(config, 1024);
-	const LoweredStep lowered =
+	const model_config_t config = sample_config();
+	const layout_t layout = recommend_layout(config, 1024);
+	const lowered_step_t lowered =
 		lower_to_slots(build_train_step(config, layout));
-	const Manifest manifest =
+	const manifest_t manifest =
 		make_manifest("reboot_train_step", config, 11, layout, lowered);
 
 	const std::string path = "test_options.manifest";
 	manifest.save(path);
-	const Manifest loaded = Manifest::load(path);
+	const manifest_t loaded = manifest_t::load(path);
 
 	check(loaded.function_name == "reboot_train_step",
 		  "function name survives");
@@ -199,10 +199,10 @@ void test_manifest() {
 	// A different one must not: this is the failure the manifest exists to
 	// catch, where the runner would otherwise call the module with the
 	// argument order of another network.
-	ModelConfig other = config;
+	model_config_t other = config;
 	other.hidden = {8, 4, 4};
-	const Layout other_layout = recommend_layout(other, 1024);
-	const LoweredStep other_step =
+	const layout_t other_layout = recommend_layout(other, 1024);
+	const lowered_step_t other_step =
 		lower_to_slots(build_train_step(other, other_layout));
 	std::string rejection;
 	try {

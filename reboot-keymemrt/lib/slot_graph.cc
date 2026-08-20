@@ -11,151 +11,151 @@
 
 namespace reboot {
 
-const char *slot_op_name(SlotOp op) {
+const char *slot_op_name(slot_op_t op) {
 	switch (op) {
-		case SlotOp::kArgument:
+		case slot_op_t::argument:
 			return "argument";
-		case SlotOp::kAdd:
+		case slot_op_t::add:
 			return "add";
-		case SlotOp::kSub:
+		case slot_op_t::sub:
 			return "sub";
-		case SlotOp::kMul:
+		case slot_op_t::mul:
 			return "mul";
-		case SlotOp::kMulPlain:
+		case slot_op_t::mul_plain:
 			return "mul_plain";
-		case SlotOp::kAddPlain:
+		case slot_op_t::add_plain:
 			return "add_plain";
-		case SlotOp::kMulScalar:
+		case slot_op_t::mul_scalar:
 			return "mul_scalar";
-		case SlotOp::kRotate:
+		case slot_op_t::rotate:
 			return "rotate";
-		case SlotOp::kBootstrap:
+		case slot_op_t::bootstrap:
 			return "bootstrap";
 	}
 	return "unknown";
 }
 
-SlotId SlotGraph::push(SlotValue v) {
-	v.id = static_cast<SlotId>(values_.size());
+slot_id_t slot_graph_t::push(slot_value_t v) {
+	v.id = static_cast<slot_id_t>(values_.size());
 	values_.push_back(std::move(v));
 	return values_.back().id;
 }
 
-void SlotGraph::set_name(SlotId id, const std::string &name) {
+void slot_graph_t::set_name(slot_id_t id, const std::string &name) {
 	values_.at(id).name = name;
 }
 
-SlotId SlotGraph::argument(const std::string &name) {
-	SlotValue v;
-	v.op = SlotOp::kArgument;
+slot_id_t slot_graph_t::argument(const std::string &name) {
+	slot_value_t v;
+	v.op = slot_op_t::argument;
 	v.name = name;
 	return push(std::move(v));
 }
 
 namespace {
 
-int deeper_of(const std::vector<SlotValue> &values,
-			  const std::vector<SlotId> &inputs) {
+int deeper_of(const std::vector<slot_value_t> &values,
+			  const std::vector<slot_id_t> &inputs) {
 	int level = 0;
-	for (SlotId in : inputs) level = std::max(level, values.at(in).level);
+	for (slot_id_t in : inputs) level = std::max(level, values.at(in).level);
 	return level;
 }
 
 }  // namespace
 
-SlotId SlotGraph::add(SlotId a, SlotId b) {
-	SlotValue v;
-	v.op = SlotOp::kAdd;
+slot_id_t slot_graph_t::add(slot_id_t a, slot_id_t b) {
+	slot_value_t v;
+	v.op = slot_op_t::add;
 	v.inputs = {a, b};
 	v.level = deeper_of(values_, v.inputs);
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::sub(SlotId a, SlotId b) {
-	SlotValue v;
-	v.op = SlotOp::kSub;
+slot_id_t slot_graph_t::sub(slot_id_t a, slot_id_t b) {
+	slot_value_t v;
+	v.op = slot_op_t::sub;
 	v.inputs = {a, b};
 	v.level = deeper_of(values_, v.inputs);
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::mul(SlotId a, SlotId b) {
-	SlotValue v;
-	v.op = SlotOp::kMul;
+slot_id_t slot_graph_t::mul(slot_id_t a, slot_id_t b) {
+	slot_value_t v;
+	v.op = slot_op_t::mul;
 	v.inputs = {a, b};
 	v.level = deeper_of(values_, v.inputs) + 1;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::mul_plain(SlotId a, int constant) {
-	SlotValue v;
-	v.op = SlotOp::kMulPlain;
+slot_id_t slot_graph_t::mul_plain(slot_id_t a, int constant) {
+	slot_value_t v;
+	v.op = slot_op_t::mul_plain;
 	v.inputs = {a};
 	v.constant = constant;
 	v.level = values_.at(a).level + 1;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::add_plain(SlotId a, int constant) {
-	SlotValue v;
-	v.op = SlotOp::kAddPlain;
+slot_id_t slot_graph_t::add_plain(slot_id_t a, int constant) {
+	slot_value_t v;
+	v.op = slot_op_t::add_plain;
 	v.inputs = {a};
 	v.constant = constant;
 	v.level = values_.at(a).level;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::mul_scalar(SlotId a, double s) {
+slot_id_t slot_graph_t::mul_scalar(slot_id_t a, double s) {
 	// ckks.mul_scalar multiplies by a real constant without rescaling, so the
 	// optimiser's learning rate and momentum factors cost no depth.
-	SlotValue v;
-	v.op = SlotOp::kMulScalar;
+	slot_value_t v;
+	v.op = slot_op_t::mul_scalar;
 	v.inputs = {a};
 	v.scalar = s;
 	v.level = values_.at(a).level;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::rotate(SlotId a, int shift) {
+slot_id_t slot_graph_t::rotate(slot_id_t a, int shift) {
 	if (shift == 0) return a;
-	SlotValue v;
-	v.op = SlotOp::kRotate;
+	slot_value_t v;
+	v.op = slot_op_t::rotate;
 	v.inputs = {a};
 	v.rotation = shift;
 	v.level = values_.at(a).level;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::bootstrap(SlotId a) {
-	SlotValue v;
-	v.op = SlotOp::kBootstrap;
+slot_id_t slot_graph_t::bootstrap(slot_id_t a) {
+	slot_value_t v;
+	v.op = slot_op_t::bootstrap;
 	v.inputs = {a};
 	v.level = 0;
 	return push(std::move(v));
 }
 
-SlotId SlotGraph::sum_rows(SlotId a) {
-	SlotId acc = a;
+slot_id_t slot_graph_t::sum_rows(slot_id_t a) {
+	slot_id_t acc = a;
 	for (int k = layout_.cols; k < layout_.slots(); k <<= 1)
 		acc = add(acc, rotate(acc, k));
 	return acc;
 }
 
-SlotId SlotGraph::sum_cols(SlotId a) {
-	SlotId acc = a;
+slot_id_t slot_graph_t::sum_cols(slot_id_t a) {
+	slot_id_t acc = a;
 	for (int k = 1; k < layout_.cols; k <<= 1) acc = add(acc, rotate(acc, k));
 	acc = mul_plain(acc, first_column_mask_constant());
 	for (int k = 1; k < layout_.cols; k <<= 1) acc = add(acc, rotate(acc, -k));
 	return acc;
 }
 
-int SlotGraph::splat_constant(double value) {
+int slot_graph_t::splat_constant(double value) {
 	for (size_t i = 0; i < constants_.size(); ++i) {
 		if (constants_[i].splat && !constants_[i].values.empty() &&
 			constants_[i].values.front() == value)
 			return static_cast<int>(i);
 	}
-	SlotConstant c;
+	slot_constant_t c;
 	c.name = fmt::format("splat_{}", constants_.size());
 	c.values.assign(static_cast<size_t>(layout_.slots()), value);
 	c.splat = true;
@@ -163,9 +163,9 @@ int SlotGraph::splat_constant(double value) {
 	return static_cast<int>(constants_.size()) - 1;
 }
 
-int SlotGraph::first_column_mask_constant() {
+int slot_graph_t::first_column_mask_constant() {
 	if (mask_constant_ >= 0) return mask_constant_;
-	SlotConstant c;
+	slot_constant_t c;
 	c.name = "first_column_mask";
 	c.values = first_column_mask(layout_);
 	constants_.push_back(std::move(c));
@@ -173,22 +173,22 @@ int SlotGraph::first_column_mask_constant() {
 	return mask_constant_;
 }
 
-std::vector<int> SlotGraph::rotation_indices() const {
+std::vector<int> slot_graph_t::rotation_indices() const {
 	std::set<int> indices;
-	for (const SlotValue &v : values_)
-		if (v.op == SlotOp::kRotate) indices.insert(v.rotation);
+	for (const slot_value_t &v : values_)
+		if (v.op == slot_op_t::rotate) indices.insert(v.rotation);
 	return std::vector<int>(indices.begin(), indices.end());
 }
 
-int SlotGraph::max_level() const {
+int slot_graph_t::max_level() const {
 	int level = 0;
-	for (const SlotValue &v : values_) level = std::max(level, v.level);
+	for (const slot_value_t &v : values_) level = std::max(level, v.level);
 	return level;
 }
 
-std::string SlotGraph::statistics() const {
+std::string slot_graph_t::statistics() const {
 	std::map<std::string, int> counts;
-	for (const SlotValue &v : values_) ++counts[slot_op_name(v.op)];
+	for (const slot_value_t &v : values_) ++counts[slot_op_name(v.op)];
 	std::string out = fmt::format("slot graph: {} values, {} constants\n",
 								  values_.size(), constants_.size());
 	for (const auto &[name, count] : counts)
@@ -199,96 +199,96 @@ std::string SlotGraph::statistics() const {
 	return out;
 }
 
-LoweredStep lower_to_slots(const TrainStep &step) {
-	LoweredStep lowered(step.layout);
-	SlotGraph &sg = lowered.graph;
-	const TensorGraph &tg = step.graph;
+lowered_step_t lower_to_slots(const train_step_t &step) {
+	lowered_step_t lowered(step.layout);
+	slot_graph_t &sg = lowered.graph;
+	const tensor_graph_t &tg = step.graph;
 
-	std::vector<SlotId> mapping(tg.size(), kNoSlot);
+	std::vector<slot_id_t> mapping(tg.size(), no_slot);
 
 	// Arguments first and in the order the model declared them, so the emitted
 	// function signature is stable.
-	for (ValueId id : step.arguments) {
-		const TensorValue &v = tg.value(id);
+	for (value_id_t id : step.arguments) {
+		const tensor_value_t &v = tg.value(id);
 		mapping[id] = sg.argument(v.name);
 		lowered.arguments.push_back(mapping[id]);
 		lowered.argument_names.push_back(v.name);
 	}
 
-	for (ValueId id : tg.topological_order()) {
-		if (mapping[id] != kNoSlot) continue;
-		const TensorValue &v = tg.value(id);
-		SlotId out = kNoSlot;
+	for (value_id_t id : tg.topological_order()) {
+		if (mapping[id] != no_slot) continue;
+		const tensor_value_t &v = tg.value(id);
+		slot_id_t out = no_slot;
 
 		switch (v.op) {
-			case TensorOp::kInput:
-			case TensorOp::kParam:
+			case tensor_op_t::input:
+			case tensor_op_t::param:
 				throw std::runtime_error(fmt::format(
 					"leaf '{}' is not among the declared arguments", v.name));
 
-			case TensorOp::kMatMul: {
-				const SlotId product =
+			case tensor_op_t::matmul: {
+				const slot_id_t product =
 					sg.mul(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				out = tg.value(v.inputs[1]).row_packing ? sg.sum_rows(product)
 														: sg.sum_cols(product);
 				break;
 			}
 
-			case TensorOp::kMatMulT: {
+			case tensor_op_t::matmul_transposed: {
 				// The transpose is the same product summed the other way: no
 				// transposition of the weight ciphertext, no repacking.
-				const SlotId product =
+				const slot_id_t product =
 					sg.mul(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				out = tg.value(v.inputs[1]).row_packing ? sg.sum_cols(product)
 														: sg.sum_rows(product);
 				break;
 			}
 
-			case TensorOp::kOuter:
+			case tensor_op_t::outer:
 				// One operand is Expanded and the other Repeated, so their
 				// elementwise product already is the outer product in the
 				// weight layout - no rotation at all.
 				out = sg.mul(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				break;
 
-			case TensorOp::kAdd:
+			case tensor_op_t::add:
 				out = sg.add(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				break;
-			case TensorOp::kSub:
+			case tensor_op_t::sub:
 				out = sg.sub(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				break;
-			case TensorOp::kHadamard:
+			case tensor_op_t::hadamard:
 				out = sg.mul(mapping[v.inputs[0]], mapping[v.inputs[1]]);
 				break;
-			case TensorOp::kScale:
+			case tensor_op_t::scale:
 				out = sg.mul_scalar(mapping[v.inputs[0]], v.scalar);
 				break;
-			case TensorOp::kAddScalar:
+			case tensor_op_t::add_scalar:
 				out = sg.add_plain(mapping[v.inputs[0]],
 								   sg.splat_constant(v.scalar));
 				break;
-			case TensorOp::kSquare:
+			case tensor_op_t::square:
 				out = sg.mul(mapping[v.inputs[0]], mapping[v.inputs[0]]);
 				break;
-			case TensorOp::kPolyRelu: {
-				const SlotId x = mapping[v.inputs[0]];
+			case tensor_op_t::poly_relu: {
+				const slot_id_t x = mapping[v.inputs[0]];
 				out = sg.add(sg.mul(x, x), x);
 				break;
 			}
-			case TensorOp::kPolyReluGrad: {
-				const SlotId g = mapping[v.inputs[0]];
-				const SlotId x = mapping[v.inputs[1]];
-				const SlotId shifted =
+			case tensor_op_t::poly_relu_grad: {
+				const slot_id_t g = mapping[v.inputs[0]];
+				const slot_id_t x = mapping[v.inputs[1]];
+				const slot_id_t shifted =
 					sg.add_plain(sg.mul_scalar(x, 2.0), sg.splat_constant(1.0));
 				out = sg.mul(g, shifted);
 				break;
 			}
-			case TensorOp::kStopGradient:
+			case tensor_op_t::stop_gradient:
 				// Forward-transparent: the block boundary only matters to the
 				// autograd pass, and by now differentiation has happened.
 				out = mapping[v.inputs[0]];
 				break;
-			case TensorOp::kBootstrap:
+			case tensor_op_t::bootstrap:
 				out = sg.bootstrap(mapping[v.inputs[0]]);
 				break;
 		}
@@ -297,7 +297,7 @@ LoweredStep lower_to_slots(const TrainStep &step) {
 		if (!v.name.empty()) sg.set_name(out, v.name);
 	}
 
-	for (ValueId id : step.results) {
+	for (value_id_t id : step.results) {
 		lowered.results.push_back(mapping[id]);
 		lowered.result_names.push_back(tg.value(id).name);
 	}

@@ -9,80 +9,80 @@
 
 namespace reboot {
 
-const char *tensor_op_name(TensorOp op) {
+const char *tensor_op_name(tensor_op_t op) {
 	switch (op) {
-		case TensorOp::kInput:
+		case tensor_op_t::input:
 			return "input";
-		case TensorOp::kParam:
+		case tensor_op_t::param:
 			return "param";
-		case TensorOp::kMatMul:
+		case tensor_op_t::matmul:
 			return "matmul";
-		case TensorOp::kMatMulT:
-			return "matmul_t";
-		case TensorOp::kOuter:
+		case tensor_op_t::matmul_transposed:
+			return "matmul_transposed";
+		case tensor_op_t::outer:
 			return "outer";
-		case TensorOp::kAdd:
+		case tensor_op_t::add:
 			return "add";
-		case TensorOp::kSub:
+		case tensor_op_t::sub:
 			return "sub";
-		case TensorOp::kHadamard:
+		case tensor_op_t::hadamard:
 			return "hadamard";
-		case TensorOp::kScale:
+		case tensor_op_t::scale:
 			return "scale";
-		case TensorOp::kAddScalar:
+		case tensor_op_t::add_scalar:
 			return "add_scalar";
-		case TensorOp::kSquare:
+		case tensor_op_t::square:
 			return "square";
-		case TensorOp::kPolyRelu:
+		case tensor_op_t::poly_relu:
 			return "poly_relu";
-		case TensorOp::kPolyReluGrad:
+		case tensor_op_t::poly_relu_grad:
 			return "poly_relu_grad";
-		case TensorOp::kStopGradient:
+		case tensor_op_t::stop_gradient:
 			return "stop_gradient";
-		case TensorOp::kBootstrap:
+		case tensor_op_t::bootstrap:
 			return "bootstrap";
 	}
 	return "unknown";
 }
 
-std::string Shape::str() const {
+std::string shape_t::str() const {
 	return is_vector() ? fmt::format("[{}]", cols)
 					   : fmt::format("[{}x{}]", rows, cols);
 }
 
-ValueId TensorGraph::push(TensorValue v) {
-	v.id = static_cast<ValueId>(values_.size());
+value_id_t tensor_graph_t::push(tensor_value_t v) {
+	v.id = static_cast<value_id_t>(values_.size());
 	values_.push_back(std::move(v));
 	return values_.back().id;
 }
 
-void TensorGraph::set_name(ValueId id, const std::string &name) {
+void tensor_graph_t::set_name(value_id_t id, const std::string &name) {
 	values_.at(id).name = name;
 }
 
-ValueId TensorGraph::input(const std::string &name, int length,
-						   PackFormat format) {
-	TensorValue v;
-	v.op = TensorOp::kInput;
-	v.shape = Shape{1, length};
+value_id_t tensor_graph_t::input(const std::string &name, int length,
+								 pack_format_t format) {
+	tensor_value_t v;
+	v.op = tensor_op_t::input;
+	v.shape = shape_t{1, length};
 	v.name = name;
 	v.format = format;
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::param(const std::string &name, int rows, int cols,
-						   bool row_packing) {
-	TensorValue v;
-	v.op = TensorOp::kParam;
-	v.shape = Shape{rows, cols};
+value_id_t tensor_graph_t::param(const std::string &name, int rows, int cols,
+								 bool row_packing) {
+	tensor_value_t v;
+	v.op = tensor_op_t::param;
+	v.shape = shape_t{rows, cols};
 	v.name = name;
 	v.row_packing = row_packing;
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::matmul(ValueId x, ValueId w) {
-	const TensorValue &xv = value(x);
-	const TensorValue &wv = value(w);
+value_id_t tensor_graph_t::matmul(value_id_t x, value_id_t w) {
+	const tensor_value_t &xv = value(x);
+	const tensor_value_t &wv = value(w);
 	if (!xv.shape.is_vector() || wv.shape.is_vector())
 		throw std::invalid_argument("matmul expects a vector and a matrix");
 	if (xv.shape.cols != wv.shape.rows)
@@ -96,37 +96,38 @@ ValueId TensorGraph::matmul(ValueId x, ValueId w) {
 						xv.name, format_name(xv.format), wv.name,
 						format_name(input_format(wv.row_packing))));
 
-	TensorValue v;
-	v.op = TensorOp::kMatMul;
-	v.shape = Shape{1, wv.shape.cols};
+	tensor_value_t v;
+	v.op = tensor_op_t::matmul;
+	v.shape = shape_t{1, wv.shape.cols};
 	v.inputs = {x, w};
 	v.format = output_format(wv.row_packing);
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::matmul_t(ValueId g, ValueId w) {
-	const TensorValue &gv = value(g);
-	const TensorValue &wv = value(w);
+value_id_t tensor_graph_t::matmul_transposed(value_id_t g, value_id_t w) {
+	const tensor_value_t &gv = value(g);
+	const tensor_value_t &wv = value(w);
 	if (!gv.shape.is_vector() || wv.shape.is_vector())
-		throw std::invalid_argument("matmul_t expects a vector and a matrix");
+		throw std::invalid_argument(
+			"matmul_transposed expects a vector and a matrix");
 	if (gv.shape.cols != wv.shape.cols)
 		throw std::invalid_argument(
-			fmt::format("matmul_t shape mismatch: {} . {}^T", gv.shape.str(),
-						wv.shape.str()));
+			fmt::format("matmul_transposed shape mismatch: {} . {}^T",
+						gv.shape.str(), wv.shape.str()));
 	if (gv.format != output_format(wv.row_packing))
-		throw std::invalid_argument("matmul_t format mismatch");
+		throw std::invalid_argument("matmul_transposed format mismatch");
 
-	TensorValue v;
-	v.op = TensorOp::kMatMulT;
-	v.shape = Shape{1, wv.shape.rows};
+	tensor_value_t v;
+	v.op = tensor_op_t::matmul_transposed;
+	v.shape = shape_t{1, wv.shape.rows};
 	v.inputs = {g, w};
 	v.format = input_format(wv.row_packing);
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::outer(ValueId x, ValueId g) {
-	const TensorValue &xv = value(x);
-	const TensorValue &gv = value(g);
+value_id_t tensor_graph_t::outer(value_id_t x, value_id_t g) {
+	const tensor_value_t &xv = value(x);
+	const tensor_value_t &gv = value(g);
 	if (!xv.shape.is_vector() || !gv.shape.is_vector())
 		throw std::invalid_argument("outer expects two vectors");
 	if (xv.format == gv.format)
@@ -134,19 +135,19 @@ ValueId TensorGraph::outer(ValueId x, ValueId g) {
 			"outer needs one Expanded and one Repeated operand; that is what "
 			"makes the elementwise product land in the weight layout");
 
-	TensorValue v;
-	v.op = TensorOp::kOuter;
-	v.shape = Shape{xv.shape.cols, gv.shape.cols};
+	tensor_value_t v;
+	v.op = tensor_op_t::outer;
+	v.shape = shape_t{xv.shape.cols, gv.shape.cols};
 	v.inputs = {x, g};
 	// x Expanded (down the rows) and g Repeated (along the row) is exactly the
 	// row-packed weight layout; the mirrored case is the column-packed one.
-	v.row_packing = xv.format == PackFormat::kExpanded;
+	v.row_packing = xv.format == pack_format_t::expanded;
 	return push(std::move(v));
 }
 
 namespace {
 
-void require_same(const TensorValue &a, const TensorValue &b,
+void require_same(const tensor_value_t &a, const tensor_value_t &b,
 				  const char *what) {
 	if (a.shape != b.shape)
 		throw std::invalid_argument(fmt::format("{}: shape {} vs {}", what,
@@ -161,105 +162,105 @@ void require_same(const TensorValue &a, const TensorValue &b,
 
 }  // namespace
 
-ValueId TensorGraph::add(ValueId a, ValueId b) {
+value_id_t tensor_graph_t::add(value_id_t a, value_id_t b) {
 	require_same(value(a), value(b), "add");
-	TensorValue v = value(a);
-	v.op = TensorOp::kAdd;
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::add;
 	v.inputs = {a, b};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::sub(ValueId a, ValueId b) {
+value_id_t tensor_graph_t::sub(value_id_t a, value_id_t b) {
 	require_same(value(a), value(b), "sub");
-	TensorValue v = value(a);
-	v.op = TensorOp::kSub;
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::sub;
 	v.inputs = {a, b};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::hadamard(ValueId a, ValueId b) {
+value_id_t tensor_graph_t::hadamard(value_id_t a, value_id_t b) {
 	require_same(value(a), value(b), "hadamard");
-	TensorValue v = value(a);
-	v.op = TensorOp::kHadamard;
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::hadamard;
 	v.inputs = {a, b};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::scale(ValueId a, double s) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kScale;
+value_id_t tensor_graph_t::scale(value_id_t a, double s) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::scale;
 	v.inputs = {a};
 	v.scalar = s;
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::add_scalar(ValueId a, double s) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kAddScalar;
+value_id_t tensor_graph_t::add_scalar(value_id_t a, double s) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::add_scalar;
 	v.inputs = {a};
 	v.scalar = s;
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::square(ValueId a) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kSquare;
+value_id_t tensor_graph_t::square(value_id_t a) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::square;
 	v.inputs = {a};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::poly_relu(ValueId a) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kPolyRelu;
+value_id_t tensor_graph_t::poly_relu(value_id_t a) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::poly_relu;
 	v.inputs = {a};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::poly_relu_grad(ValueId g, ValueId x) {
+value_id_t tensor_graph_t::poly_relu_grad(value_id_t g, value_id_t x) {
 	require_same(value(g), value(x), "poly_relu_grad");
-	TensorValue v = value(g);
-	v.op = TensorOp::kPolyReluGrad;
+	tensor_value_t v = value(g);
+	v.op = tensor_op_t::poly_relu_grad;
 	v.inputs = {g, x};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::stop_gradient(ValueId a) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kStopGradient;
+value_id_t tensor_graph_t::stop_gradient(value_id_t a) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::stop_gradient;
 	v.inputs = {a};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-ValueId TensorGraph::bootstrap(ValueId a) {
-	TensorValue v = value(a);
-	v.op = TensorOp::kBootstrap;
+value_id_t tensor_graph_t::bootstrap(value_id_t a) {
+	tensor_value_t v = value(a);
+	v.op = tensor_op_t::bootstrap;
 	v.inputs = {a};
 	v.name.clear();
 	return push(std::move(v));
 }
 
-std::vector<ValueId> TensorGraph::topological_order() const {
-	std::vector<ValueId> order(values_.size());
+std::vector<value_id_t> tensor_graph_t::topological_order() const {
+	std::vector<value_id_t> order(values_.size());
 	std::iota(order.begin(), order.end(), 0);
 	return order;
 }
 
-std::string TensorGraph::dump() const {
+std::string tensor_graph_t::dump() const {
 	std::string out;
-	for (const TensorValue &v : values_) {
+	for (const tensor_value_t &v : values_) {
 		out += fmt::format("  %{:<4} = {:<15} {}", v.id, tensor_op_name(v.op),
 						   v.shape.str());
-		for (ValueId in : v.inputs) out += fmt::format(" %{}", in);
-		if (v.op == TensorOp::kScale || v.op == TensorOp::kAddScalar)
+		for (value_id_t in : v.inputs) out += fmt::format(" %{}", in);
+		if (v.op == tensor_op_t::scale || v.op == tensor_op_t::add_scalar)
 			out += fmt::format(" ({})", v.scalar);
 		if (!v.name.empty()) out += fmt::format("  // {}", v.name);
 		out += "\n";

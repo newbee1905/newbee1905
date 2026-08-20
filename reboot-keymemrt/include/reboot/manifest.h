@@ -26,28 +26,28 @@
 
 namespace reboot {
 
-struct Manifest {
+struct manifest_t {
 	std::string function_name;
-	ModelConfig config;
+	model_config_t config;
 	int log_n = 0;
-	Layout layout;
+	layout_t layout;
 	std::vector<std::string> argument_names;
 	std::vector<std::string> result_names;
 
 	// Written next to the module, `<module>.manifest`.
 	void save(const std::string &path) const;
-	static Manifest load(const std::string &path);
+	static manifest_t load(const std::string &path);
 
 	// Throws when a freshly built step does not match what the module was
 	// emitted from, naming the first difference.
-	void verify(const LoweredStep &step) const;
+	void verify(const lowered_step_t &step) const;
 
 	std::string describe() const;
 };
 
-Manifest make_manifest(const std::string &function_name,
-					   const ModelConfig &config, int log_n,
-					   const Layout &layout, const LoweredStep &step);
+manifest_t make_manifest(const std::string &function_name,
+						 const model_config_t &config, int log_n,
+						 const layout_t &layout, const lowered_step_t &step);
 
 }  // namespace reboot
 

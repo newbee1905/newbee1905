@@ -31,15 +31,16 @@
 
 namespace reboot {
 
-struct EmitOptions {
+struct emit_options_t {
 	std::string function_name = "reboot_train_step";
-	CkksParams params;
+	ckks_params_t params;
 	// Emit each value's origin (the tensor node it came from) as a comment.
 	bool annotate = true;
 };
 
 // Render the lowered step as an MLIR module.
-std::string emit_mlir(const LoweredStep &step, const EmitOptions &options);
+std::string emit_mlir(const lowered_step_t &step,
+					  const emit_options_t &options);
 
 }  // namespace reboot
 

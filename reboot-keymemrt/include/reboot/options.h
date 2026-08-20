@@ -23,33 +23,33 @@
 
 namespace reboot {
 
-class OptionParser {
+class option_parser_t {
    public:
-	OptionParser(std::string program, std::string summary)
+	option_parser_t(std::string program, std::string summary)
 		: program_(std::move(program)), summary_(std::move(summary)) {}
 
 	// Value options, bound by reference.  The referenced variable must outlive
 	// the parse, which is the usual case: locals in main().
-	OptionParser &add(const std::string &name, int &target,
-					  const std::string &help);
-	OptionParser &add(const std::string &name, double &target,
-					  const std::string &help);
-	OptionParser &add(const std::string &name, std::string &target,
-					  const std::string &help);
+	option_parser_t &add(const std::string &name, int &target,
+						 const std::string &help);
+	option_parser_t &add(const std::string &name, double &target,
+						 const std::string &help);
+	option_parser_t &add(const std::string &name, std::string &target,
+						 const std::string &help);
 	// Comma-separated list, as in `--hidden 64,32`.
-	OptionParser &add(const std::string &name, std::vector<int> &target,
-					  const std::string &help);
+	option_parser_t &add(const std::string &name, std::vector<int> &target,
+						 const std::string &help);
 
 	// Valueless switch: presence sets `target` to `value`.
-	OptionParser &add_switch(const std::string &name, bool &target, bool value,
-							 const std::string &help);
+	option_parser_t &add_switch(const std::string &name, bool &target,
+								bool value, const std::string &help);
 
 	// A flag another parser owns - KeyMemRT reads its own from argv - so that
 	// it is skipped rather than reported as unknown.
-	OptionParser &ignore(const std::string &name, bool takes_value);
+	option_parser_t &ignore(const std::string &name, bool takes_value);
 
 	// Blank line plus a heading in the generated help.
-	OptionParser &section(const std::string &title);
+	option_parser_t &section(const std::string &title);
 
 	// Returns false when --help was given, so main() can exit cleanly.
 	// Throws std::invalid_argument with a usable message on anything wrong.
@@ -58,7 +58,7 @@ class OptionParser {
 	std::string help() const;
 
    private:
-	struct Option {
+	struct option_t {
 		std::string name;
 		std::string help;
 		std::string section;
@@ -67,22 +67,23 @@ class OptionParser {
 		std::function<void(const std::string &)> apply;
 	};
 
-	OptionParser &push(Option option);
-	const Option *find(const std::string &name) const;
+	option_parser_t &push(option_t option);
+	const option_t *find(const std::string &name) const;
 
 	std::string program_;
 	std::string summary_;
 	std::string current_section_;
-	std::vector<Option> options_;
+	std::vector<option_t> options_;
 	std::vector<std::string> section_order_;
 };
 
 // The flags that describe a network.  Registered from one place so the emitter,
 // the plaintext evaluator and the measurement tool cannot drift apart.
-void add_model_options(OptionParser &parser, ModelConfig &config, int &log_n);
+void add_model_options(option_parser_t &parser, model_config_t &config,
+					   int &log_n);
 
 // The flags KeyMemRT's own parser consumes.
-void ignore_keymemrt_options(OptionParser &parser);
+void ignore_keymemrt_options(option_parser_t &parser);
 
 }  // namespace reboot
 

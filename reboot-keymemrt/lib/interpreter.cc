@@ -9,33 +9,33 @@
 namespace reboot {
 namespace {
 
-DenseValue zip(const DenseValue &a, const DenseValue &b, double sign) {
+dense_value_t zip(const dense_value_t &a, const dense_value_t &b, double sign) {
 	if (a.size() != b.size())
 		throw std::runtime_error("elementwise operands differ in size");
-	DenseValue out(a.size());
+	dense_value_t out(a.size());
 	for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + sign * b[i];
 	return out;
 }
 
-DenseValue product(const DenseValue &a, const DenseValue &b) {
+dense_value_t product(const dense_value_t &a, const dense_value_t &b) {
 	if (a.size() != b.size())
 		throw std::runtime_error("elementwise operands differ in size");
-	DenseValue out(a.size());
+	dense_value_t out(a.size());
 	for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] * b[i];
 	return out;
 }
 
 }  // namespace
 
-std::vector<DenseValue> evaluate(const TensorGraph &graph,
-								 const TensorInputs &inputs) {
-	std::vector<DenseValue> values(graph.size());
+std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
+									const tensor_inputs_t &inputs) {
+	std::vector<dense_value_t> values(graph.size());
 
-	for (ValueId id : graph.topological_order()) {
-		const TensorValue &v = graph.value(id);
+	for (value_id_t id : graph.topological_order()) {
+		const tensor_value_t &v = graph.value(id);
 		switch (v.op) {
-			case TensorOp::kInput:
-			case TensorOp::kParam: {
+			case tensor_op_t::input:
+			case tensor_op_t::param: {
 				auto it = inputs.find(id);
 				if (it == inputs.end())
 					throw std::runtime_error(
@@ -50,11 +50,11 @@ std::vector<DenseValue> evaluate(const TensorGraph &graph,
 				break;
 			}
 
-			case TensorOp::kMatMul: {
-				const DenseValue &x = values[v.inputs[0]];
-				const DenseValue &w = values[v.inputs[1]];
-				const TensorValue &wv = graph.value(v.inputs[1]);
-				DenseValue out(static_cast<size_t>(wv.shape.cols), 0.0);
+			case tensor_op_t::matmul: {
+				const dense_value_t &x = values[v.inputs[0]];
+				const dense_value_t &w = values[v.inputs[1]];
+				const tensor_value_t &wv = graph.value(v.inputs[1]);
+				dense_value_t out(static_cast<size_t>(wv.shape.cols), 0.0);
 				for (int j = 0; j < wv.shape.cols; ++j)
 					for (int i = 0; i < wv.shape.rows; ++i)
 						out[static_cast<size_t>(j)] +=
@@ -64,11 +64,11 @@ std::vector<DenseValue> evaluate(const TensorGraph &graph,
 				break;
 			}
 
-			case TensorOp::kMatMulT: {
-				const DenseValue &g = values[v.inputs[0]];
-				const DenseValue &w = values[v.inputs[1]];
-				const TensorValue &wv = graph.value(v.inputs[1]);
-				DenseValue out(static_cast<size_t>(wv.shape.rows), 0.0);
+			case tensor_op_t::matmul_transposed: {
+				const dense_value_t &g = values[v.inputs[0]];
+				const dense_value_t &w = values[v.inputs[1]];
+				const tensor_value_t &wv = graph.value(v.inputs[1]);
+				dense_value_t out(static_cast<size_t>(wv.shape.rows), 0.0);
 				for (int i = 0; i < wv.shape.rows; ++i)
 					for (int j = 0; j < wv.shape.cols; ++j)
 						out[static_cast<size_t>(i)] +=
@@ -78,10 +78,10 @@ std::vector<DenseValue> evaluate(const TensorGraph &graph,
 				break;
 			}
 
-			case TensorOp::kOuter: {
-				const DenseValue &a = values[v.inputs[0]];
-				const DenseValue &b = values[v.inputs[1]];
-				DenseValue out(a.size() * b.size(), 0.0);
+			case tensor_op_t::outer: {
+				const dense_value_t &a = values[v.inputs[0]];
+				const dense_value_t &b = values[v.inputs[1]];
+				dense_value_t out(a.size() * b.size(), 0.0);
 				for (size_t i = 0; i < a.size(); ++i)
 					for (size_t j = 0; j < b.size(); ++j)
 						out[i * b.size() + j] = a[i] * b[j];
@@ -89,48 +89,48 @@ std::vector<DenseValue> evaluate(const TensorGraph &graph,
 				break;
 			}
 
-			case TensorOp::kAdd:
+			case tensor_op_t::add:
 				values[id] = zip(values[v.inputs[0]], values[v.inputs[1]], 1.0);
 				break;
-			case TensorOp::kSub:
+			case tensor_op_t::sub:
 				values[id] =
 					zip(values[v.inputs[0]], values[v.inputs[1]], -1.0);
 				break;
-			case TensorOp::kHadamard:
+			case tensor_op_t::hadamard:
 				values[id] = product(values[v.inputs[0]], values[v.inputs[1]]);
 				break;
-			case TensorOp::kScale: {
-				DenseValue out = values[v.inputs[0]];
+			case tensor_op_t::scale: {
+				dense_value_t out = values[v.inputs[0]];
 				for (double &x : out) x *= v.scalar;
 				values[id] = std::move(out);
 				break;
 			}
-			case TensorOp::kAddScalar: {
-				DenseValue out = values[v.inputs[0]];
+			case tensor_op_t::add_scalar: {
+				dense_value_t out = values[v.inputs[0]];
 				for (double &x : out) x += v.scalar;
 				values[id] = std::move(out);
 				break;
 			}
-			case TensorOp::kSquare:
+			case tensor_op_t::square:
 				values[id] = product(values[v.inputs[0]], values[v.inputs[0]]);
 				break;
-			case TensorOp::kPolyRelu: {
-				DenseValue out = values[v.inputs[0]];
+			case tensor_op_t::poly_relu: {
+				dense_value_t out = values[v.inputs[0]];
 				for (double &x : out) x = x * x + x;
 				values[id] = std::move(out);
 				break;
 			}
-			case TensorOp::kPolyReluGrad: {
-				const DenseValue &g = values[v.inputs[0]];
-				const DenseValue &x = values[v.inputs[1]];
-				DenseValue out(g.size());
+			case tensor_op_t::poly_relu_grad: {
+				const dense_value_t &g = values[v.inputs[0]];
+				const dense_value_t &x = values[v.inputs[1]];
+				dense_value_t out(g.size());
 				for (size_t i = 0; i < g.size(); ++i)
 					out[i] = g[i] * (2.0 * x[i] + 1.0);
 				values[id] = std::move(out);
 				break;
 			}
-			case TensorOp::kStopGradient:
-			case TensorOp::kBootstrap:
+			case tensor_op_t::stop_gradient:
+			case tensor_op_t::bootstrap:
 				values[id] = values[v.inputs[0]];
 				break;
 		}
@@ -138,53 +138,53 @@ std::vector<DenseValue> evaluate(const TensorGraph &graph,
 	return values;
 }
 
-std::vector<DenseValue> evaluate(const SlotGraph &graph,
-								 const SlotInputs &inputs) {
+std::vector<dense_value_t> evaluate(const slot_graph_t &graph,
+									const slot_inputs_t &inputs) {
 	const int slots = graph.layout().slots();
-	std::vector<DenseValue> values(graph.size());
+	std::vector<dense_value_t> values(graph.size());
 
-	for (const SlotValue &v : graph.values()) {
+	for (const slot_value_t &v : graph.values()) {
 		switch (v.op) {
-			case SlotOp::kArgument: {
+			case slot_op_t::argument: {
 				auto it = inputs.find(v.id);
 				if (it == inputs.end())
 					throw std::runtime_error(fmt::format(
 						"no value supplied for argument '{}'", v.name));
-				DenseValue value = it->second;
+				dense_value_t value = it->second;
 				value.resize(static_cast<size_t>(slots), 0.0);
 				values[v.id] = std::move(value);
 				break;
 			}
-			case SlotOp::kAdd:
+			case slot_op_t::add:
 				values[v.id] =
 					zip(values[v.inputs[0]], values[v.inputs[1]], 1.0);
 				break;
-			case SlotOp::kSub:
+			case slot_op_t::sub:
 				values[v.id] =
 					zip(values[v.inputs[0]], values[v.inputs[1]], -1.0);
 				break;
-			case SlotOp::kMul:
+			case slot_op_t::mul:
 				values[v.id] =
 					product(values[v.inputs[0]], values[v.inputs[1]]);
 				break;
-			case SlotOp::kMulPlain:
+			case slot_op_t::mul_plain:
 				values[v.id] = product(values[v.inputs[0]],
 									   graph.constants().at(v.constant).values);
 				break;
-			case SlotOp::kAddPlain:
+			case slot_op_t::add_plain:
 				values[v.id] =
 					zip(values[v.inputs[0]],
 						graph.constants().at(v.constant).values, 1.0);
 				break;
-			case SlotOp::kMulScalar: {
-				DenseValue out = values[v.inputs[0]];
+			case slot_op_t::mul_scalar: {
+				dense_value_t out = values[v.inputs[0]];
 				for (double &x : out) x *= v.scalar;
 				values[v.id] = std::move(out);
 				break;
 			}
-			case SlotOp::kRotate: {
-				const DenseValue &in = values[v.inputs[0]];
-				DenseValue out(in.size());
+			case slot_op_t::rotate: {
+				const dense_value_t &in = values[v.inputs[0]];
+				dense_value_t out(in.size());
 				const int n = static_cast<int>(in.size());
 				const int shift = ((v.rotation % n) + n) % n;
 				for (int i = 0; i < n; ++i)
@@ -193,7 +193,7 @@ std::vector<DenseValue> evaluate(const SlotGraph &graph,
 				values[v.id] = std::move(out);
 				break;
 			}
-			case SlotOp::kBootstrap:
+			case slot_op_t::bootstrap:
 				values[v.id] = values[v.inputs[0]];
 				break;
 		}

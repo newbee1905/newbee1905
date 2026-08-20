@@ -41,9 +41,9 @@ size_t count_occurrences(const std::string &text, const std::string &needle) {
 	return count;
 }
 
-size_t count_op(const SlotGraph &graph, SlotOp op) {
+size_t count_op(const slot_graph_t &graph, slot_op_t op) {
 	size_t count = 0;
-	for (const SlotValue &v : graph.values())
+	for (const slot_value_t &v : graph.values())
 		if (v.op == op) ++count;
 	return count;
 }
@@ -51,20 +51,21 @@ size_t count_op(const SlotGraph &graph, SlotOp op) {
 }  // namespace
 
 int main() {
-	ModelConfig config;
+	model_config_t config;
 	config.input_dim = 6;
 	config.hidden = {8, 4};
 	config.num_classes = 3;
 	config.batch_size = 2;
 	config.weight_decay = 0.01;
 
-	EmitOptions options;
+	emit_options_t options;
 	options.params.log_n = 12;
 	options.params.log_scale = 26;
 
-	const Layout layout = recommend_layout(config, options.params.num_slots());
-	const TrainStep step = build_train_step(config, layout);
-	const LoweredStep lowered = lower_to_slots(step);
+	const layout_t layout =
+		recommend_layout(config, options.params.num_slots());
+	const train_step_t step = build_train_step(config, layout);
+	const lowered_step_t lowered = lower_to_slots(step);
 	options.params.levels = lowered.graph.max_level() + 1;
 	const std::string mlir = emit_mlir(lowered, options);
 
@@ -81,28 +82,28 @@ int main() {
 		  "ciphertext types are spelled out for the pipeline");
 
 	fmt::print("operation counts match the slot graph\n");
-	const size_t muls = count_op(lowered.graph, SlotOp::kMul);
+	const size_t muls = count_op(lowered.graph, slot_op_t::mul);
 	check(count_occurrences(mlir, "ckks.mul ") == muls, "ckks.mul count");
 	check(count_occurrences(mlir, "ckks.relinearize ") == muls,
 		  "every product is relinearised back to the canonical basis");
 	check(count_occurrences(mlir, "ckks.add ") ==
-			  count_op(lowered.graph, SlotOp::kAdd),
+			  count_op(lowered.graph, slot_op_t::add),
 		  "ckks.add count");
 	check(count_occurrences(mlir, "ckks.sub ") ==
-			  count_op(lowered.graph, SlotOp::kSub),
+			  count_op(lowered.graph, slot_op_t::sub),
 		  "ckks.sub count");
 	check(count_occurrences(mlir, "ckks.mul_scalar ") ==
-			  count_op(lowered.graph, SlotOp::kMulScalar),
+			  count_op(lowered.graph, slot_op_t::mul_scalar),
 		  "ckks.mul_scalar count");
 	check(count_occurrences(mlir, "ckks.bootstrap ") ==
-			  count_op(lowered.graph, SlotOp::kBootstrap),
+			  count_op(lowered.graph, slot_op_t::bootstrap),
 		  "ckks.bootstrap count");
 	check(count_occurrences(mlir, "lwe.rlwe_encode ") ==
 			  lowered.graph.constants().size(),
 		  "one encoded plaintext per constant");
 
 	fmt::print("rotations carry the index KeyMemRT needs\n");
-	const size_t rotates = count_op(lowered.graph, SlotOp::kRotate);
+	const size_t rotates = count_op(lowered.graph, slot_op_t::rotate);
 	check(count_occurrences(mlir, "ckks.rotate ") == rotates,
 		  "ckks.rotate count");
 	check(count_occurrences(mlir, "static_shift") == rotates,
@@ -152,7 +153,7 @@ int main() {
 
 	fmt::print("no placeholders left behind\n");
 	check(mlir.find("%-1") == std::string::npos, "no unresolved values");
-	check(mlir.find("kNoSlot") == std::string::npos, "no debug spelling");
+	check(mlir.find("no_slot") == std::string::npos, "no debug spelling");
 
 	if (failures == 0) {
 		fmt::print("all emitter tests passed\n");

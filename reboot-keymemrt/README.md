@@ -67,7 +67,7 @@ products:
 
 | forward | VJP | what it lowers to |
 | --- | --- | --- |
-| `matmul(x, W)` | `∂x = matmul_t(g, W)` | the same weight ciphertext, summed the *other* way — no transpose, no repacking |
+| `matmul(x, W)` | `∂x = matmul_transposed(g, W)` | the same weight ciphertext, summed the *other* way — no transpose, no repacking |
 | `matmul(x, W)` | `∂W = outer(x, g)` | a bare elementwise product: one operand is Repeated and the other Expanded, so the product already *is* the outer product in the weight layout — zero rotations |
 | `poly_relu(x)` | `g · (2x + 1)` | one level, as in the paper |
 
@@ -364,9 +364,14 @@ it. `add_model_options` registers the network flags for every binary that needs
 them, and `ignore_keymemrt_options` declares the ones KeyMemRT reads from argv
 itself so they are skipped rather than rejected.
 
-Google C++ style with tab indentation, snake_case functions, variables and file
-names, CamelCase types, and trailing-underscore members; `.clang-format` is in
-this directory. All formatting and output goes through {fmt} 12.
+Snake case throughout: functions, variables and file names, and types with a
+`_t` suffix (`option_parser_t`, `slot_graph_t`, `pack_format_t`). Enumerators are
+plain snake case inside their scoped enum (`pack_format_t::repeated`), class
+members carry a trailing underscore, and indentation is tabs; `.clang-format` is
+in this directory. The only CamelCase left is other people's API - OpenFHE's
+`CiphertextT`, KeyMemRT's `keymem_rt` methods - which is kept verbatim so the
+generated code and the runtime headers still read as theirs. All formatting and
+output goes through {fmt} 12.
 
 ## Licence
 

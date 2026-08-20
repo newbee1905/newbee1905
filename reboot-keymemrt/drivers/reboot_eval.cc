@@ -28,7 +28,7 @@ using namespace reboot;
 
 namespace {
 
-int argmax(const DenseValue &v) {
+int argmax(const dense_value_t &v) {
 	int best = 0;
 	for (size_t i = 1; i < v.size(); ++i)
 		if (v[i] > v[static_cast<size_t>(best)]) best = static_cast<int>(i);
@@ -38,7 +38,7 @@ int argmax(const DenseValue &v) {
 }  // namespace
 
 int main(int argc, char **argv) {
-	ModelConfig config;
+	model_config_t config;
 	config.hidden = {32, 16};
 	config.input_dim = 16;
 	config.num_classes = 4;
@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
 	int seed = 1;
 	std::string csv;
 
-	OptionParser parser(
+	option_parser_t parser(
 		"reboot_eval",
 		"run the emitted ReBoot training step on plaintext slots");
 	add_model_options(parser, config, log_n);
@@ -65,9 +65,10 @@ int main(int argc, char **argv) {
 		if (!parser.parse(argc, argv)) return 0;
 		seed_value = static_cast<unsigned>(seed);
 
-		Dataset data = csv.empty() ? make_blobs(samples, config.input_dim,
-												config.num_classes, /*seed=*/5)
-								   : load_csv(csv);
+		dataset_t data = csv.empty()
+							 ? make_blobs(samples, config.input_dim,
+										  config.num_classes, /*seed=*/5)
+							 : load_csv(csv);
 		if (!csv.empty()) {
 			normalise(data);
 			config.input_dim = data.dim;
@@ -75,10 +76,10 @@ int main(int argc, char **argv) {
 		}
 
 		const int num_slots = 1 << (log_n - 1);
-		const Layout layout = recommend_layout(config, num_slots);
-		const TrainStep step = build_train_step(config, layout);
-		const LoweredStep lowered = lower_to_slots(step);
-		const TensorGraph &g = step.graph;
+		const layout_t layout = recommend_layout(config, num_slots);
+		const train_step_t step = build_train_step(config, layout);
+		const lowered_step_t lowered = lower_to_slots(step);
+		const tensor_graph_t &g = step.graph;
 
 		fmt::print("{}", step.describe());
 		fmt::print("{}", lowered.graph.statistics());
@@ -92,23 +93,23 @@ int main(int argc, char **argv) {
 
 		// Encrypted state: weights initialised Xavier-uniform, velocities zero.
 		std::mt19937 rng(seed_value);
-		std::map<std::string, DenseValue> state;
-		for (const ParamBinding &p : step.params) {
-			const TensorValue &meta = g.value(p.weight);
+		std::map<std::string, dense_value_t> state;
+		for (const param_binding_t &p : step.params) {
+			const tensor_value_t &meta = g.value(p.weight);
 			const double bound =
 				std::sqrt(1.0 / (meta.shape.rows + meta.shape.cols));
 			std::uniform_real_distribution<double> dist(-bound, bound);
-			DenseValue weights(static_cast<size_t>(meta.shape.rows) *
-							   meta.shape.cols);
+			dense_value_t weights(static_cast<size_t>(meta.shape.rows) *
+								  meta.shape.cols);
 			for (double &w : weights) w = dist(rng);
 			state[p.name] =
 				pack_weights(weights, meta.shape.rows, meta.shape.cols,
 							 meta.row_packing, layout);
 			state[fmt::format("v_{}", p.name)] =
-				DenseValue(static_cast<size_t>(layout.slots()), 0.0);
+				dense_value_t(static_cast<size_t>(layout.slots()), 0.0);
 		}
 
-		const PackFormat prediction_format =
+		const pack_format_t prediction_format =
 			g.value(step.predictions.front()).format;
 		std::mt19937 shuffle_rng(seed_value);
 
@@ -120,13 +121,13 @@ int main(int argc, char **argv) {
 			for (size_t start = 0;
 				 start + static_cast<size_t>(config.batch_size) <= data.size();
 				 start += static_cast<size_t>(config.batch_size)) {
-				SlotInputs inputs;
+				slot_inputs_t inputs;
 				for (const auto &[name, value] : state)
 					inputs[lowered.arguments[argument_index.at(name)]] = value;
 
 				for (int b = 0; b < config.batch_size; ++b) {
 					const size_t index = start + static_cast<size_t>(b);
-					const DenseValue one_hot_label =
+					const dense_value_t one_hot_label =
 						one_hot(data.y[index], config.num_classes);
 					const std::string x_name = fmt::format("x_{}", b);
 					inputs[lowered.arguments[argument_index.at(x_name)]] =
@@ -135,8 +136,8 @@ int main(int argc, char **argv) {
 							g.value(step.arguments[argument_index.at(x_name)])
 								.format,
 							layout);
-					for (PackFormat format :
-						 {PackFormat::kRepeated, PackFormat::kExpanded}) {
+					for (pack_format_t format :
+						 {pack_format_t::repeated, pack_format_t::expanded}) {
 						const std::string y_name =
 							fmt::format("y_{}_{}", format_name(format), b);
 						auto it = argument_index.find(y_name);
@@ -146,12 +147,12 @@ int main(int argc, char **argv) {
 					}
 				}
 
-				const std::vector<DenseValue> values =
+				const std::vector<dense_value_t> values =
 					evaluate(lowered.graph, inputs);
 
 				// The step returns the refreshed state; feed it back in.
 				for (size_t i = 0; i < step.params.size(); ++i) {
-					const ParamBinding &p = step.params[i];
+					const param_binding_t &p = step.params[i];
 					state[p.name] = values[lowered.results[2 * i]];
 					state[fmt::format("v_{}", p.name)] =
 						values[lowered.results[2 * i + 1]];
@@ -159,7 +160,7 @@ int main(int argc, char **argv) {
 
 				const size_t prediction_base = 2 * step.params.size();
 				for (int b = 0; b < config.batch_size; ++b) {
-					const DenseValue scores = unpack_vector(
+					const dense_value_t scores = unpack_vector(
 						values[lowered.results[prediction_base +
 											   static_cast<size_t>(b)]],
 						prediction_format, layout, config.num_classes);

@@ -20,20 +20,20 @@
 using namespace reboot;
 
 int main(int argc, char **argv) {
-	ModelConfig config;
+	model_config_t config;
 	config.hidden = {32, 16};
 	config.input_dim = 16;
 	config.num_classes = 4;
 	config.batch_size = 1;
 
-	EmitOptions options;
+	emit_options_t options;
 	int log_n = 13;
 	int levels_override = 0;
 	std::string output_path, manifest_path;
 	bool dump_graph = false, stats = false;
 
-	OptionParser parser("reboot_emit",
-						"emit a ReBoot training step as ckks-dialect MLIR");
+	option_parser_t parser("reboot_emit",
+						   "emit a ReBoot training step as ckks-dialect MLIR");
 	add_model_options(parser, config, log_n);
 	parser.section("CKKS")
 		.add("--log-scale", options.params.log_scale,
@@ -53,10 +53,10 @@ int main(int argc, char **argv) {
 		if (!parser.parse(argc, argv)) return 0;
 		options.params.log_n = log_n;
 
-		const Layout layout =
+		const layout_t layout =
 			recommend_layout(config, options.params.num_slots());
-		const TrainStep step = build_train_step(config, layout);
-		const LoweredStep lowered = lower_to_slots(step);
+		const train_step_t step = build_train_step(config, layout);
+		const lowered_step_t lowered = lower_to_slots(step);
 
 		// The modulus chain has to be long enough for the levels the step
 		// consumes; the slot graph knows exactly how many that is.

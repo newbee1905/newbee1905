@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 	std::string manifest_path, csv, result_dir = "./results";
 	int samples = 64, steps = 4;
 
-	OptionParser parser(
+	option_parser_t parser(
 		"reboot_runner",
 		"run the generated ReBoot training step under KeyMemRT");
 	parser.section("Module").add(
@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
 	// than reported as unknown.
 	ignore_keymemrt_options(parser);
 
-	Manifest manifest;
+	manifest_t manifest;
 	try {
 		if (!parser.parse(argc, argv)) return 0;
 		if (manifest_path.empty())
@@ -102,7 +102,7 @@ int main(int argc, char **argv) {
 				"--manifest is required: it is what pins this run to the "
 				"module that was generated, so the argument order cannot "
 				"silently disagree");
-		manifest = Manifest::load(manifest_path);
+		manifest = manifest_t::load(manifest_path);
 	} catch (const std::exception &error) {
 		fmt::print(stderr, "error: {}\n", error.what());
 		return 1;
@@ -111,15 +111,15 @@ int main(int argc, char **argv) {
 	// The model comes from the manifest, never from flags: the generated
 	// function has a fixed argument order and a mistyped width here would
 	// build a different one.
-	ModelConfig config = manifest.config;
+	model_config_t config = manifest.config;
 	const int log_n = manifest.log_n;
-	const Layout layout = manifest.layout;
+	const layout_t layout = manifest.layout;
 	fmt::print("{}", manifest.describe());
 
 	// ---- schema: the same graph the emitted module was built from ----------
-	Dataset data = csv.empty() ? make_blobs(samples, config.input_dim,
-											config.num_classes, /*seed=*/5)
-							   : load_csv(csv);
+	dataset_t data = csv.empty() ? make_blobs(samples, config.input_dim,
+											  config.num_classes, /*seed=*/5)
+								 : load_csv(csv);
 	if (!csv.empty()) {
 		normalise(data);
 		if (data.dim != config.input_dim ||
@@ -134,9 +134,9 @@ int main(int argc, char **argv) {
 	}
 
 	const int num_slots = 1 << (log_n - 1);
-	const TrainStep step = build_train_step(config, layout);
-	const LoweredStep lowered = lower_to_slots(step);
-	const TensorGraph &g = step.graph;
+	const train_step_t step = build_train_step(config, layout);
+	const lowered_step_t lowered = lower_to_slots(step);
+	const tensor_graph_t &g = step.graph;
 	try {
 		manifest.verify(lowered);
 	} catch (const std::exception &error) {
@@ -177,8 +177,8 @@ int main(int argc, char **argv) {
 
 	std::mt19937 rng(1);
 	std::map<std::string, Ciphertext<DCRTPoly>> state;
-	for (const ParamBinding &p : step.params) {
-		const TensorValue &meta = g.value(p.weight);
+	for (const param_binding_t &p : step.params) {
+		const tensor_value_t &meta = g.value(p.weight);
 		const double bound =
 			std::sqrt(1.0 / (meta.shape.rows + meta.shape.cols));
 		std::uniform_real_distribution<double> dist(-bound, bound);
@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
 	monitor->start(trace);
 
 	// ---- training loop -----------------------------------------------------
-	const PackFormat prediction_format =
+	const pack_format_t prediction_format =
 		g.value(step.predictions.front()).format;
 	const size_t batch = static_cast<size_t>(config.batch_size);
 
@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
 				continue;
 			}
 			// Inputs and labels: encrypted fresh for this batch.
-			const TensorValue &meta = g.value(step.arguments[i]);
+			const tensor_value_t &meta = g.value(step.arguments[i]);
 			const size_t sample = static_cast<size_t>(
 				std::stoi(name.substr(name.rfind('_') + 1)));
 			const std::vector<double> plain =

@@ -18,7 +18,7 @@
 
 namespace reboot {
 
-struct CkksParams {
+struct ckks_params_t {
 	// Ring dimension is 2^log_n; a fully packed ciphertext holds 2^(log_n-1)
 	// slots.
 	int log_n = 13;
@@ -35,7 +35,7 @@ struct CkksParams {
 
 // A generated modulus chain: q[0] is the first modulus, q[1..] the rescaling
 // primes, and p the special modulus.
-struct ModulusChain {
+struct modulus_chain_t {
 	std::vector<uint64_t> q;
 	std::vector<uint64_t> p;
 };
@@ -43,11 +43,11 @@ struct ModulusChain {
 // Generate `params.levels + 1` distinct primes congruent to 1 mod 2N, the first
 // of width log_first_mod and the rest of width log_scale, plus one special
 // prime of width log_p.  Throws when no prime of the requested width exists.
-ModulusChain generate_modulus_chain(const CkksParams &params);
+modulus_chain_t generate_modulus_chain(const ckks_params_t &params);
 
 // `#ckks.scheme_param<...>` attribute text for the emitted module.
-std::string scheme_param_attr(const CkksParams &params,
-							  const ModulusChain &chain);
+std::string scheme_param_attr(const ckks_params_t &params,
+							  const modulus_chain_t &chain);
 
 }  // namespace reboot
 

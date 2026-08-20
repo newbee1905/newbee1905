@@ -83,15 +83,15 @@ size_t map_bytes(const std::map<usint, EvalKey<DCRTPoly>> &keys) {
 // EvalSumRowsKeyGen and EvalSumColsKeyGen put their keys in the EvalSum map and
 // in the automorphism map, and the two maps share the objects - so the union
 // has to be taken by identity, not by summing both maps.
-struct KeyCensus {
+struct key_census_t {
 	size_t bytes = 0;
 	size_t count = 0;
 };
 
-KeyCensus census(
+key_census_t census(
 	const std::vector<const std::map<usint, EvalKey<DCRTPoly>> *> &maps) {
 	std::set<const void *> seen;
-	KeyCensus result;
+	key_census_t result;
 	for (const auto *keys : maps)
 		for (const auto &[index, key] : *keys) {
 			if (!key || !seen.insert(key.get()).second) continue;
@@ -108,7 +108,7 @@ double mb(size_t bytes) {
 }  // namespace
 
 int main(int argc, char **argv) {
-	ModelConfig config;
+	model_config_t config;
 	config.hidden = {32, 16};
 	config.input_dim = 16;
 	config.num_classes = 4;
@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
 	int log_n = 14, depth_override = 0, scaling_mod = 50;
 	std::string key_dir = "./keys_measure";
 
-	OptionParser parser(
+	option_parser_t parser(
 		"measure_key_memory",
 		"compare the rotation-key working set of ReBoot and KeyMemRT");
 	add_model_options(parser, config, log_n);
@@ -137,9 +137,9 @@ int main(int argc, char **argv) {
 
 	// ---- the step, and the rotation indices it names -----------------------
 	const int num_slots = 1 << (log_n - 1);
-	const Layout layout = recommend_layout(config, num_slots);
-	const TrainStep step = build_train_step(config, layout);
-	const LoweredStep lowered = lower_to_slots(step);
+	const layout_t layout = recommend_layout(config, num_slots);
+	const train_step_t step = build_train_step(config, layout);
+	const lowered_step_t lowered = lower_to_slots(step);
 	const std::vector<int> indices = lowered.graph.rotation_indices();
 	const int depth =
 		depth_override > 0 ? depth_override : lowered.graph.max_level() + 1;
@@ -151,8 +151,8 @@ int main(int argc, char **argv) {
 		"multiplicative depth    : {}\n\n",
 		[&] {
 			size_t n = 0;
-			for (const SlotValue &v : lowered.graph.values())
-				if (v.op == SlotOp::kRotate) ++n;
+			for (const slot_value_t &v : lowered.graph.values())
+				if (v.op == slot_op_t::rotate) ++n;
 			return n;
 		}(),
 		indices.size(), depth);
@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
 	const auto &sum_keys = CryptoContextImpl<DCRTPoly>::GetEvalSumKeyMap(tag);
 	const auto &auto_keys =
 		CryptoContextImpl<DCRTPoly>::GetEvalAutomorphismKeyMap(tag);
-	const KeyCensus reboot = census({&sum_keys, &auto_keys});
+	const key_census_t reboot = census({&sum_keys, &auto_keys});
 	const size_t reboot_bytes = reboot.bytes;
 	const size_t reboot_keys = reboot.count;
 	const double rss_reboot = rss_mb();
@@ -250,8 +250,8 @@ int main(int argc, char **argv) {
 	// which is the fork's dynamic-Q-size feature.  Deeper in the step means
 	// fewer towers and a smaller key.
 	std::set<int> levels;
-	for (const SlotValue &v : lowered.graph.values())
-		if (v.op == SlotOp::kRotate) levels.insert(v.level);
+	for (const slot_value_t &v : lowered.graph.values())
+		if (v.op == slot_op_t::rotate) levels.insert(v.level);
 
 	fmt::print("key size against the level it is used at\n");
 	size_t compressed_total = 0;

@@ -36,17 +36,17 @@ inline bool is_power_of_two(int x) {
 }
 
 // Geometry of the packed matrix held by one ciphertext.
-struct Layout {
+struct layout_t {
 	int rows =
 		0;	// number of rows      (`row_size` in the reference ReBoot code)
 	int cols =
 		0;	// length of one row   (`col_size` in the reference ReBoot code)
 
-	Layout() = default;
-	Layout(int r, int c) : rows(r), cols(c) {
+	layout_t() = default;
+	layout_t(int r, int c) : rows(r), cols(c) {
 		if (!is_power_of_two(rows) || !is_power_of_two(cols))
 			throw std::invalid_argument(
-				"Layout dimensions must be powers of two");
+				"layout_t dimensions must be powers of two");
 	}
 
 	int slots() const { return rows * cols; }
@@ -55,27 +55,28 @@ struct Layout {
 	}
 };
 
-enum class PackFormat { kRepeated, kExpanded };
+enum class pack_format_t { repeated, expanded };
 
-inline const char *format_name(PackFormat f) {
-	return f == PackFormat::kRepeated ? "repeated" : "expanded";
+inline const char *format_name(pack_format_t f) {
+	return f == pack_format_t::repeated ? "repeated" : "expanded";
 }
 
 // The format a packed linear layer expects on its input / produces on its
 // output.  `row_packing` selects between the two encodings of the weight
 // matrix.
-inline PackFormat input_format(bool row_packing) {
-	return row_packing ? PackFormat::kExpanded : PackFormat::kRepeated;
+inline pack_format_t input_format(bool row_packing) {
+	return row_packing ? pack_format_t::expanded : pack_format_t::repeated;
 }
-inline PackFormat output_format(bool row_packing) {
-	return row_packing ? PackFormat::kRepeated : PackFormat::kExpanded;
+inline pack_format_t output_format(bool row_packing) {
+	return row_packing ? pack_format_t::repeated : pack_format_t::expanded;
 }
 
 // Pack a plain vector into `layout.slots()` slots using `f`.
 inline std::vector<double> pack_vector(const std::vector<double> &v,
-									   PackFormat f, const Layout &layout) {
+									   pack_format_t f,
+									   const layout_t &layout) {
 	std::vector<double> out(static_cast<size_t>(layout.slots()), 0.0);
-	if (f == PackFormat::kRepeated) {
+	if (f == pack_format_t::repeated) {
 		if (static_cast<int>(v.size()) > layout.cols)
 			throw std::invalid_argument("vector longer than layout.cols");
 		for (int i = 0; i < layout.rows; ++i)
@@ -93,11 +94,11 @@ inline std::vector<double> pack_vector(const std::vector<double> &v,
 
 // Read the first `n` entries of a vector back out of a packed slot vector.
 inline std::vector<double> unpack_vector(const std::vector<double> &slots,
-										 PackFormat f, const Layout &layout,
-										 int n) {
+										 pack_format_t f,
+										 const layout_t &layout, int n) {
 	std::vector<double> out(static_cast<size_t>(n), 0.0);
 	for (int k = 0; k < n; ++k) {
-		size_t idx = (f == PackFormat::kRepeated)
+		size_t idx = (f == pack_format_t::repeated)
 						 ? static_cast<size_t>(k)				  // row 0
 						 : static_cast<size_t>(k) * layout.cols;  // column 0
 		out[static_cast<size_t>(k)] = slots[idx];
@@ -116,7 +117,7 @@ inline std::vector<double> unpack_vector(const std::vector<double> &slots,
 inline std::vector<double> pack_weights(const std::vector<double> &w,
 										int in_features, int out_features,
 										bool row_packing,
-										const Layout &layout) {
+										const layout_t &layout) {
 	if (w.size() != static_cast<size_t>(in_features) * out_features)
 		throw std::invalid_argument("weight size does not match its shape");
 	const int pad_rows = row_packing ? layout.rows : layout.cols;
@@ -141,7 +142,7 @@ inline std::vector<double> pack_weights(const std::vector<double> &w,
 inline std::vector<double> unpack_weights(const std::vector<double> &slots,
 										  int in_features, int out_features,
 										  bool row_packing,
-										  const Layout &layout) {
+										  const layout_t &layout) {
 	std::vector<double> out(static_cast<size_t>(in_features) * out_features,
 							0.0);
 	for (int i = 0; i < in_features; ++i) {
@@ -157,7 +158,7 @@ inline std::vector<double> unpack_weights(const std::vector<double> &slots,
 
 // Mask that keeps the first column of every row (slot index % cols == 0).
 // Used by the column-summation primitive.
-inline std::vector<double> first_column_mask(const Layout &layout) {
+inline std::vector<double> first_column_mask(const layout_t &layout) {
 	std::vector<double> mask(static_cast<size_t>(layout.slots()), 0.0);
 	for (int i = 0; i < layout.rows; ++i)
 		mask[static_cast<size_t>(i) * layout.cols] = 1.0;

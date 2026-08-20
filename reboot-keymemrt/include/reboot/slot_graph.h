@@ -32,70 +32,70 @@
 
 namespace reboot {
 
-using SlotId = int;
-inline constexpr SlotId kNoSlot = -1;
+using slot_id_t = int;
+inline constexpr slot_id_t no_slot = -1;
 
-enum class SlotOp {
-	kArgument,	 // ciphertext function argument
-	kAdd,		 // ckks.add
-	kSub,		 // ckks.sub
-	kMul,		 // ckks.mul + ckks.relinearize
-	kMulPlain,	 // ckks.mul_plain against an encoded constant
-	kAddPlain,	 // ckks.add_plain against an encoded constant
-	kMulScalar,	 // ckks.mul_scalar, no level consumed
-	kRotate,	 // ckks.rotate {static_shift}
-	kBootstrap,	 // ckks.bootstrap
+enum class slot_op_t {
+	argument,	 // ciphertext function argument
+	add,		 // ckks.add
+	sub,		 // ckks.sub
+	mul,		 // ckks.mul + ckks.relinearize
+	mul_plain,	 // ckks.mul_plain against an encoded constant
+	add_plain,	 // ckks.add_plain against an encoded constant
+	mul_scalar,	 // ckks.mul_scalar, no level consumed
+	rotate,		 // ckks.rotate {static_shift}
+	bootstrap,	 // ckks.bootstrap
 };
 
-const char *slot_op_name(SlotOp op);
+const char *slot_op_name(slot_op_t op);
 
-struct SlotValue {
-	SlotId id = kNoSlot;
-	SlotOp op = SlotOp::kArgument;
-	std::vector<SlotId> inputs;
-	int rotation = 0;	  // kRotate
-	double scalar = 0.0;  // kMulScalar
-	int constant = -1;	  // kMulPlain, kAddPlain: index into constants()
+struct slot_value_t {
+	slot_id_t id = no_slot;
+	slot_op_t op = slot_op_t::argument;
+	std::vector<slot_id_t> inputs;
+	int rotation = 0;	  // rotate
+	double scalar = 0.0;  // mul_scalar
+	int constant = -1;	  // mul_plain, add_plain: index into constants()
 	int level = 0;		  // levels consumed on the path to this value
 	std::string name;	  // arguments and results
 };
 
 // A public constant vector, encoded once and reused.
-struct SlotConstant {
+struct slot_constant_t {
 	std::string name;
 	std::vector<double> values;
 	bool splat = false;	 // every slot identical: emitted as dense<c>
 };
 
-class SlotGraph {
+class slot_graph_t {
    public:
-	explicit SlotGraph(const Layout &layout) : layout_(layout) {}
+	explicit slot_graph_t(const layout_t &layout) : layout_(layout) {}
 
-	const Layout &layout() const { return layout_; }
-	const std::vector<SlotValue> &values() const { return values_; }
-	const std::vector<SlotConstant> &constants() const { return constants_; }
-	const SlotValue &value(SlotId id) const { return values_.at(id); }
+	const layout_t &layout() const { return layout_; }
+	const std::vector<slot_value_t> &values() const { return values_; }
+	const std::vector<slot_constant_t> &constants() const { return constants_; }
+	const slot_value_t &value(slot_id_t id) const { return values_.at(id); }
 	size_t size() const { return values_.size(); }
 
-	SlotId argument(const std::string &name);
-	SlotId add(SlotId a, SlotId b);
-	SlotId sub(SlotId a, SlotId b);
-	SlotId mul(SlotId a, SlotId b);
-	SlotId mul_plain(SlotId a, int constant);
-	SlotId add_plain(SlotId a, int constant);
-	SlotId mul_scalar(SlotId a, double s);
-	SlotId rotate(SlotId a, int shift);
-	SlotId bootstrap(SlotId a);
+	slot_id_t argument(const std::string &name);
+	slot_id_t add(slot_id_t a, slot_id_t b);
+	slot_id_t sub(slot_id_t a, slot_id_t b);
+	slot_id_t mul(slot_id_t a, slot_id_t b);
+	slot_id_t mul_plain(slot_id_t a, int constant);
+	slot_id_t add_plain(slot_id_t a, int constant);
+	slot_id_t mul_scalar(slot_id_t a, double s);
+	slot_id_t rotate(slot_id_t a, int shift);
+	slot_id_t bootstrap(slot_id_t a);
 
 	// Summation trees.
-	SlotId sum_rows(SlotId a);
-	SlotId sum_cols(SlotId a);
+	slot_id_t sum_rows(slot_id_t a);
+	slot_id_t sum_cols(slot_id_t a);
 
 	// Constant pool.
 	int splat_constant(double value);
 	int first_column_mask_constant();
 
-	void set_name(SlotId id, const std::string &name);
+	void set_name(slot_id_t id, const std::string &name);
 
 	// Every rotation index the graph uses, sorted.
 	std::vector<int> rotation_indices() const;
@@ -103,26 +103,26 @@ class SlotGraph {
 	std::string statistics() const;
 
    private:
-	SlotId push(SlotValue v);
+	slot_id_t push(slot_value_t v);
 
-	Layout layout_;
-	std::vector<SlotValue> values_;
-	std::vector<SlotConstant> constants_;
+	layout_t layout_;
+	std::vector<slot_value_t> values_;
+	std::vector<slot_constant_t> constants_;
 	int mask_constant_ = -1;
 };
 
-struct LoweredStep {
-	SlotGraph graph;
-	std::vector<SlotId> arguments;
+struct lowered_step_t {
+	slot_graph_t graph;
+	std::vector<slot_id_t> arguments;
 	std::vector<std::string> argument_names;
-	std::vector<SlotId> results;
+	std::vector<slot_id_t> results;
 	std::vector<std::string> result_names;
 
-	explicit LoweredStep(const Layout &layout) : graph(layout) {}
+	explicit lowered_step_t(const layout_t &layout) : graph(layout) {}
 };
 
 // Lower a differentiated training step to slot operations.
-LoweredStep lower_to_slots(const TrainStep &step);
+lowered_step_t lower_to_slots(const train_step_t &step);
 
 }  // namespace reboot
 

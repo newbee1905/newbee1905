@@ -6,7 +6,7 @@
 // each local loss contributes a seed, and this pass walks the graph backwards
 // accumulating adjoints.  ReBoot's published backward rules come out of the
 // standard vector-Jacobian products - including the two that matter for
-// packing, `d/dx matmul(x, W) = matmul_t(g, W)` and `d/dW matmul(x, W) =
+// packing, `d/dx matmul(x, W) = matmul_transposed(g, W)` and `d/dW matmul(x, W) =
 // outer(x, g)`, which lower to the same weight ciphertext summed the other way
 // and to a bare elementwise product.
 //
@@ -26,24 +26,25 @@
 namespace reboot {
 
 // One term of the objective: the adjoint `seed` is dL/d(value).
-struct GradientSeed {
-	ValueId value = kNoValue;
-	ValueId seed = kNoValue;
+struct gradient_seed_t {
+	value_id_t value = no_value;
+	value_id_t seed = no_value;
 };
 
 // Seed for 1/2 |prediction - target|^2 with respect to `prediction`.
-ValueId rss_seed(TensorGraph &graph, ValueId prediction, ValueId target);
+value_id_t rss_seed(tensor_graph_t &graph, value_id_t prediction,
+					value_id_t target);
 
 // Accumulated adjoints, keyed by the value they belong to.  Values the
 // objective does not depend on are absent rather than zero, so a caller asking
-// for the gradient of an untouched parameter gets kNoValue and can say so.
-using GradientMap = std::map<ValueId, ValueId>;
+// for the gradient of an untouched parameter gets no_value and can say so.
+using gradient_map_t = std::map<value_id_t, value_id_t>;
 
 // Differentiate the objective described by `seeds`.  Nodes behind a
-// kStopGradient are reached in the forward direction but never receive an
+// stop_gradient are reached in the forward direction but never receive an
 // adjoint, which is what confines each block's error signal to that block.
-GradientMap backward(TensorGraph &graph,
-					 const std::vector<GradientSeed> &seeds);
+gradient_map_t backward(tensor_graph_t &graph,
+						const std::vector<gradient_seed_t> &seeds);
 
 }  // namespace reboot
 

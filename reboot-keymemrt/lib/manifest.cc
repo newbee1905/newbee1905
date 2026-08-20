@@ -11,7 +11,7 @@
 namespace reboot {
 namespace {
 
-constexpr int kManifestVersion = 1;
+constexpr int manifest_version = 1;
 
 std::string join(const std::vector<int> &values) {
 	std::string out;
@@ -35,10 +35,10 @@ std::vector<int> split(const std::string &text) {
 
 }  // namespace
 
-Manifest make_manifest(const std::string &function_name,
-					   const ModelConfig &config, int log_n,
-					   const Layout &layout, const LoweredStep &step) {
-	Manifest manifest;
+manifest_t make_manifest(const std::string &function_name,
+						 const model_config_t &config, int log_n,
+						 const layout_t &layout, const lowered_step_t &step) {
+	manifest_t manifest;
 	manifest.function_name = function_name;
 	manifest.config = config;
 	manifest.log_n = log_n;
@@ -48,12 +48,12 @@ Manifest make_manifest(const std::string &function_name,
 	return manifest;
 }
 
-void Manifest::save(const std::string &path) const {
+void manifest_t::save(const std::string &path) const {
 	std::ofstream file(path);
 	if (!file)
 		throw std::runtime_error(fmt::format("cannot write manifest {}", path));
 
-	file << fmt::format("reboot_manifest {}\n", kManifestVersion);
+	file << fmt::format("reboot_manifest {}\n", manifest_version);
 	file << fmt::format("function {}\n", function_name);
 	file << fmt::format("log_n {}\n", log_n);
 	file << fmt::format("layout {} {}\n", layout.rows, layout.cols);
@@ -71,12 +71,12 @@ void Manifest::save(const std::string &path) const {
 		file << fmt::format("result {}\n", name);
 }
 
-Manifest Manifest::load(const std::string &path) {
+manifest_t manifest_t::load(const std::string &path) {
 	std::ifstream file(path);
 	if (!file)
 		throw std::runtime_error(fmt::format("cannot read manifest {}", path));
 
-	Manifest manifest;
+	manifest_t manifest;
 	bool seen_header = false;
 	int rows = 0, cols = 0;
 	std::string line;
@@ -89,10 +89,10 @@ Manifest Manifest::load(const std::string &path) {
 		if (key == "reboot_manifest") {
 			int version = 0;
 			fields >> version;
-			if (version != kManifestVersion)
+			if (version != manifest_version)
 				throw std::runtime_error(
 					fmt::format("manifest {} is version {}, expected {}", path,
-								version, kManifestVersion));
+								version, manifest_version));
 			seen_header = true;
 		} else if (key == "function") {
 			fields >> manifest.function_name;
@@ -137,11 +137,11 @@ Manifest Manifest::load(const std::string &path) {
 	if (!seen_header)
 		throw std::runtime_error(
 			fmt::format("{} is not a reboot manifest", path));
-	manifest.layout = Layout(rows, cols);
+	manifest.layout = layout_t(rows, cols);
 	return manifest;
 }
 
-void Manifest::verify(const LoweredStep &step) const {
+void manifest_t::verify(const lowered_step_t &step) const {
 	auto mismatch = [&](const std::string &what, const std::string &expected,
 						const std::string &got) {
 		throw std::runtime_error(fmt::format(
@@ -169,7 +169,7 @@ void Manifest::verify(const LoweredStep &step) const {
 					 step.result_names[i]);
 }
 
-std::string Manifest::describe() const {
+std::string manifest_t::describe() const {
 	return fmt::format(
 		"manifest: {} over layout {}, ring 2^{}\n"
 		"  {} arguments, {} results\n",
