@@ -1,326 +1,237 @@
-# ReBoot on KeyMemRT
+# ReBoot → MLIR for KeyMemRT
 
-A rewrite of the **ReBoot** encrypted-training method
+A pure C++ reimplementation of the **ReBoot** encrypted-training method
 ([AAAI-26](https://ojs.aaai.org/index.php/AAAI/article/view/39670),
 [arXiv:2506.19693](https://arxiv.org/abs/2506.19693),
-[code](https://github.com/AI-Tech-Research-Lab/ReBoot)) so that it runs on the
-**KeyMemRT** runtime ([KeyMemRT](https://github.com/eymay/KeyMemRT),
-[KeyMemRT-Compiler](https://github.com/eymay/KeyMemRT-Compiler)) and its forked
-OpenFHE ([eymay/openfhe-development](https://github.com/eymay/openfhe-development)).
-
-ReBoot is the first framework for fully encrypted, non-interactive training of
-MLPs under CKKS: local-loss blocks keep the multiplicative depth of a training
-step independent of network depth, a two-format packing scheme keeps every
-tensor in one ciphertext, and the weights are bootstrapped after every step.
-KeyMemRT attacks the other half of the FHE cost model — rotation keys, which
-dominate memory — by paging each key in from disk for the rotation that needs
-it, at the compression level that rotation needs, and dropping it afterwards.
-
-Putting the two together is not a packaging exercise: the stacks conflict, and
-the conflict is structural rather than incidental. This directory contains the
-port, the reasoning, and the tests that check it.
-
----
-
-## 1. Why the original stack cannot be reused
-
-### 1.1 Two different OpenFHE builds, one process
-
-ReBoot is a Python library (`lib/`) over a pybind11 extension (`cpp/`,
-module `reboot_cpp`). Its README pins **Python 3.10.12, OpenFHE 1.2.1,
-openfhe-python 0.8.9**. Every entry point in `cpp/bindings.cpp` takes OpenFHE
-objects by value:
-
-```cpp
-m.def("encrypt_array", [](vector<vector<double>> array,
-                          const CryptoContext<DCRTPoly>& cc,
-                          const KeyPair<DCRTPoly>& key_pair, int level) { ... });
-```
-
-Those arguments only convert because the *same* `CryptoContext<DCRTPoly>` type
-is registered in the interpreter by `openfhe-python`. Two extension modules
-therefore have to agree on the OpenFHE headers, the C++ ABI and the pybind11
-type registry. KeyMemRT builds against `eymay/openfhe-development` (currently
-**1.2.3**), not upstream 1.2.1, so `reboot_cpp` and `openfhe-python` cannot both
-be right at once.
-
-### 1.2 The fork's feature is exactly the one Python cannot reach
-
-The fork is not a cosmetic branch. It adds a dynamic tower count to evaluation
-keys:
+[code](https://github.com/AI-Tech-Research-Lab/ReBoot)) that builds the network,
+**differentiates the training step itself**, lowers ReBoot's packing to explicit
+slot operations, and emits `ckks`-dialect **MLIR** for
+[KeyMemRT-Compiler](https://github.com/eymay/KeyMemRT-Compiler) — which then
+generates the OpenFHE code and the KeyMemRT key management against
+[eymay/openfhe-development](https://github.com/eymay/openfhe-development).
 
 ```
-src/pke/include/key/evalkey.h      virtual void   SetDynamicQSize(size_t)
-src/pke/include/key/evalkeyrelin.h size_t GetDynamicQSize() const
-src/pke/lib/keyswitch/keyswitch-hybrid.cpp:452   size_t sizeQ = evalKey->GetDynamicQSize();
+                 reboot_emit (this directory)
+  ModelConfig ──► tensor graph ──► autograd ──► Nesterov + bootstrap
+                                                     │
+                                       lower packing to slot ops
+                                                     │
+                                        ckks-dialect MLIR
+                                                     │
+                                              keymemrt-opt
+                          --ckks-to-lwe --lwe-to-openfhe
+                          --kmrt-merge-rotation-keys --kmrt-key-prefetching
+                                                     │
+                                          keymemrt-translate
+                                                     │
+                              OpenFHE C++ with keymem_rt.deserializeKey /
+                              EvalRotate / keymem_rt.clearKey around every
+                              rotation
 ```
 
-That field is what lets hybrid key switching use a key that has been *truncated
-to fewer towers* — the trick behind `RNSKeyCompressor` in
-`KeyMemRT/include/KeyCompression.hpp` and behind `serializeKeysAtLevel()` /
-`RestoreDynamicQSize()` in `KeyMemRT.hpp`. Upstream OpenFHE 1.2.1, which
-openfhe-python 0.8.9 wraps, has no such field: a compressed key deserialized
-into it would be rejected or silently wrong. Rebuilding openfhe-python against
-the fork is possible in principle, but it buys nothing, because of §1.3.
+## 1. Why ReBoot cannot simply run on KeyMemRT
 
-### 1.3 ReBoot's rotations are invisible to KeyMemRT
+ReBoot is a Python library over a pybind11 module (`reboot_cpp`) pinned to
+**OpenFHE 1.2.1 + openfhe-python 0.8.9**. Three things stop that stack from
+driving KeyMemRT, and they are structural rather than packaging problems:
 
-ReBoot's two matrix products are built on `EvalSumRows` and `EvalSumCols`:
+1. **Two OpenFHE builds, one interpreter.** Every `reboot_cpp` entry point takes
+   `CryptoContext<DCRTPoly>`, `KeyPair<DCRTPoly>` and friends by value, so it
+   only works if `openfhe-python` registered those exact types. KeyMemRT builds
+   against the fork (currently **1.2.3**); both cannot be right at once.
+2. **The fork's feature is unreachable from Python.** The fork adds
+   `Get/SetDynamicQSize` on evaluation keys, used by
+   `keyswitch-hybrid.cpp:452` — that is what lets hybrid key switching consume a
+   key truncated to fewer towers, which is the whole basis of
+   `RNSKeyCompressor` and `serializeKeysAtLevel()` in KeyMemRT.
+3. **ReBoot's rotations are invisible.** Its matrix products call
+   `EvalSumRows`/`EvalSumCols`, whose rotations happen inside OpenFHE against
+   the **EvalSum** key map. KeyMemRT pages keys out of the **automorphism** key
+   map one index at a time; it has no hook there, and the indices are never
+   named by the program.
 
-```cpp
-// ReBoot cpp/lib/packing.cpp
-out[i] = X[i] * W;
-out[i] = out[i].sumRows(row_size);   // cc->EvalSumRows(ct, rowSize, sumRowsKeys)
-```
+The fix for (3) is also the fix for (1) and (2): name every rotation in the IR
+and let the compiler place the key management. That is what this frontend does.
 
-Those helpers perform their rotations *inside OpenFHE*, against the **EvalSum
-key map** created by `EvalSumRowsKeyGen` / `EvalSumColsKeyGen`. KeyMemRT manages
-the **automorphism key map** (`GetEvalAutomorphismKeyMap(keyTag)`), one rotation
-index at a time — `deserializeKey(index, depth)` … `EvalRotate` …
-`clearKey(index)`. It has no hook into the EvalSum path, and the individual
-indices are never named by the program.
+## 2. What it does
 
-So even a perfectly rebuilt Python stack would hand KeyMemRT nothing to manage:
-the entire rotation key set stays resident for the whole run, which is precisely
-the behaviour KeyMemRT exists to remove.
+### 2.1 Autograd, not a hand-written backward pass
 
-### 1.4 A Python-driven runtime measures the wrong thing anyway
+`tensor_graph.h` is a small tensor-level IR — vectors and weight matrices, not
+slot vectors — so `autograd.cc` is ordinary reverse-mode differentiation. The
+model builder assembles only the *forward* network and one loss seed per local
+classifier; the backward pass is derived.
 
-KeyMemRT is a stateful C++ runtime: it mutates the crypto context's key map,
-runs a background deserialisation thread with a tower budget
-(`--prefetch-sat`), and `ResourceMonitor` reports process RSS. Driving it from
-Python breaks all three. `clearKey()` erases the map entry, but any
-`Ciphertext`/`EvalKey` still referenced by a Python object keeps its
-`shared_ptr` alive, so the memory is not returned; the GIL serialises the
-prefetch overlap that PREFETCH mode is built around; and the resident set now
-includes the interpreter, NumPy and every intermediate the Python layer holds.
+ReBoot's published backward rules fall out of the standard vector-Jacobian
+products:
 
-**Conclusion.** The port has to be native C++, and the packing primitives have
-to name their rotations explicitly. That is what this directory is.
-
----
-
-## 2. What the port does
-
-The training method is unchanged — same architecture, same local error signals,
-same packing formats, same Nesterov update, same bootstrapping schedule. What
-changed is everything about *how the rotations happen* and *where the code
-lives*.
-
-| ReBoot (Python + `reboot_cpp`) | This port | Why |
+| forward | VJP | what it lowers to |
 | --- | --- | --- |
-| `lib/cryptocontext.py` | `include/reboot/CkksContext.hpp` | context, parameters and client-side key provisioning in C++ |
-| `cpp/lib/packing.cpp` (`EvalSumRows`/`EvalSumCols`) | `include/reboot/LinAlg.hpp` | explicit rotate-and-add trees, one named index per rotation |
-| `cpp/lib/encrypted_value.cpp` | `include/reboot/CkksBackend.hpp` | ciphertext ops, each rotation bracketed by KeyMemRT load/clear |
-| `lib/layers/linear.py`, `activations.py` | `include/reboot/Layers.hpp` | packed linear layer, PolyReLU, square |
-| `lib/optim/optimizers.py` | `include/reboot/Optim.hpp` | encrypted Nesterov SGD, cosine schedule |
-| `lib/blocks/*`, `lib/models/local_loss_models.py` | `include/reboot/Model.hpp` | local-loss blocks and the eMLP builder |
-| `lib/utils/train.py`, `experiments/3_training_encrypted/` | `include/reboot/Trainer.hpp`, `drivers/reboot_train.cpp` | training loop and benchmark driver in the KeyMemRT driver style |
-| — | `include/reboot/KeyPlan.hpp` | rotation-key plan: the dynamic stand-in for the compiler's static `kmrt.load_key` analysis |
-| `lib/models/models.py` (plain vs encrypted paths) | `include/reboot/Backend.hpp` | one backend-generic implementation, run either encrypted or on plain slots |
+| `matmul(x, W)` | `∂x = matmul_t(g, W)` | the same weight ciphertext, summed the *other* way — no transpose, no repacking |
+| `matmul(x, W)` | `∂W = outer(x, g)` | a bare elementwise product: one operand is Repeated and the other Expanded, so the product already *is* the outer product in the weight layout — zero rotations |
+| `poly_relu(x)` | `g · (2x + 1)` | one level, as in the paper |
 
-### 2.1 Rotations, spelled out
+Each block ends in a `stop_gradient`, so its error signal never leaves the
+block. `test_autograd` checks all of this against central finite differences,
+including that a block's gradient equals the gradient of *its own* loss (4e-12)
+and differs from that of the full objective (2.5e-2) — the difference being
+exactly what keeps the depth of a step independent of network depth.
 
-`EvalSumRows` and `EvalSumCols` are replaced by rotate-and-add trees over
-explicit indices, with the same depth as the OpenFHE originals:
+The optimiser is emitted from the same graph. Because the velocities are
+function arguments, passing zeros on the first step reproduces ReBoot's separate
+"initialise the velocity" branch exactly, so there is only one update rule:
 
 ```
-sumRows(x)  for k = cols, 2*cols, 4*cols ... < slots:  x += rot(x, k)
-            -> column sums replicated down every row (Repeated), no extra level
-
-sumCols(x)  for k = 1, 2, 4 ... < cols:                x += rot(x, k)
-            x *= mask(first column of each row)        <- the one level EvalSumCols also spends
-            for k = 1, 2, 4 ... < cols:                x += rot(x, -k)
-            -> row sums replicated across every row (Expanded)
+g' = g + wd·W;   Δ = lr·g' + m·lr·g' + m²·lr·V;   W' = W − Δ;   V' = m·V + g'
 ```
 
-Every one of those rotations goes through the backend, and the CKKS backend
-wraps it exactly the way KeyMemRT-Compiler emits `openfhe.rot`:
+All three factors are `ckks.mul_scalar`, which costs no level.
 
-```cpp
-const RotKey rk = runtime_->deserializeKey(index, keyDepthFor(index, lvl));
-Ct out = cc_->EvalRotate(a, index);
-runtime_->clearKey(rk);
+### 2.2 Packing lowered to named rotations
+
+`slot_graph.cc` turns each tensor op into the `ckks` ops that exist, expanding
+the two summations into rotate-and-add trees:
+
+```
+sum_rows  for k = cols, 2·cols, ... < slots:  x += rot(x, k)      (no extra level)
+sum_cols  for k = 1, 2, ... < cols:           x += rot(x, k)
+          x *= mask(first column of each row)                     (one level, as EvalSumCols)
+          for k = 1, 2, ... < cols:           x += rot(x, −k)
 ```
 
-The weight gradient needs no rotations at all: one operand is Repeated and the
-other Expanded, so their elementwise product is already the outer product in the
-layer's own weight layout.
+`test_lowering` runs the tensor graph and the slot graph on the same inputs and
+compares every result of the step — updated weights, velocities and predictions
+— for three architectures; agreement is ~1e-17.
 
-### 2.2 A key plan instead of a compiler pass
+### 2.3 The emitted module
 
-KeyMemRT-Compiler decides statically which key to page in and at which
-compression level (`kmrt.load_key %idx {key_depth = L}`). A training loop with
-persistent weight ciphertexts and per-step bootstrapping is not expressible in
-that IR today, so the port recovers the same information dynamically:
+`mlir_emitter.cc` prints a module the KeyMemRT pipeline consumes: NTT-friendly
+primes generated for the requested `logN` and depth, spelled-out
+`!lwe.lwe_ciphertext` types, and one `func.func` whose arguments are the
+weights, velocities, inputs and encrypted labels and whose results are the
+refreshed state plus the predictions.
 
-1. **Plan** — a plaintext pass over the same code (the `PlainBackend` tracks
-   levels exactly like CKKS) reports the rotation indices and the depth of the
-   level schedule. No crypto, milliseconds.
-2. **Calibrate** — one client-side CKKS run with all keys resident records the
-   real `(rotation index, ciphertext level)` pairs, for the cold first step and
-   for the steady state after the first weight bootstrap.
-3. **Provision** — for each level, the keys are regenerated, compressed with
-   `serializeKeysAtLevel()` and written one file each; then everything is
-   dropped from the context. Level 0 is always provisioned as an uncompressed
-   fallback, so correctness never depends on the plan being complete.
-4. **Train** — the server runs with `--key-mode imperative|prefetch|speculative`;
-   in PREFETCH mode the recorded trace drives `enqueueKey()` a configurable
-   number of rotations ahead of the cursor.
+```mlir
+module attributes {ckks.schemeParam = #ckks.scheme_param<logN = 12, Q = [...], P = [...], logDefaultScale = 26>} {
+  func.func @reboot_train_step(%arg0: !ct {reboot.name = "w_head"}, ... ) -> (!ct, ...) {
+    %0 = ckks.mul %arg4, %arg0 : (!ct, !ct) -> !ct_d3
+    %1 = ckks.relinearize %0 {from_basis = array<i32: 0, 1, 2>, to_basis = array<i32: 0, 1>} : (!ct_d3) -> !ct
+    %2 = ckks.rotate %1 {static_shift = 8 : i64} : !ct
+    %3 = ckks.add %1, %2 : (!ct, !ct) -> !ct
+    ...
+    %n = ckks.bootstrap %m : !ct -> !ct      // w_head_next
+    return ...
+  }
+}
+```
 
-### 2.3 Bootstrapping keys
+The `static_shift` attribute is the point of the exercise: `--ckks-to-lwe` and
+`--lwe-to-openfhe` rewrite each `ckks.rotate` into `kmrt.load_key` /
+`openfhe.rot` / `kmrt.clear_key`, so the rotation keys of the *training* step
+come under KeyMemRT's per-key management without anything here knowing about
+key files, compression levels or prefetch queues.
 
-`EvalBootstrap` drives its rotations inside OpenFHE, so its keys cannot be paged
-one at a time. They are staged as a single bundle around the bootstrap phase of
-each step (`BootstrapKeyBundle::load()` / `clear()`), which still keeps them out
-of memory for the rest of the step — where ReBoot spends most of its time. If
-the bootstrap rotation indices are wanted under per-key management, the
-`--bootstrap-rotation-analysis` pass of KeyMemRT-Compiler already computes them
-statically and they can be fed to `keymem_rt.addRotIndices()`.
+Scale handling: every ciphertext is emitted at the top of the chain and each
+product is relinearised straight back to the canonical basis, leaving rescaling
+to OpenFHE's `FLEXIBLEAUTO` at run time. The depth the graph actually needs is
+computed from the graph and sizes the modulus chain.
 
-### 2.4 Two fixes relative to the reference implementation
-
-* **Labels.** ReBoot's blocks re-encrypt the *plaintext* labels during the
-  backward pass (`compute_local_loss` calls `repeat_and_encrypt(y_onehot)`), so
-  the "server" is holding cleartext labels mid-training. Here the client
-  encrypts the one-hot labels once per batch in both packings and the server
-  uses only ciphertexts, which is what non-interactive training is supposed to
-  mean.
-* **Layout.** `get_recommended_parameters` sizes `row_size`/`col_size` from a
-  heuristic that assigns some layers' output widths to the wrong dimension
-  (conservative in the paper's configurations, wrong in general).
-  `LocalLossMLP::recommendLayout` derives the constraint per layer from its own
-  packing — row-packed needs `in <= rows, out <= cols`, column-packed the
-  reverse — then inflates the rows to fill the ciphertext.
-
----
-
-## 3. Layout of this directory
+## 3. Layout
 
 ```
 include/reboot/
-  Layout.hpp        slot geometry, Repeated/Expanded packing, weight packing
-  Backend.hpp       backend concept + plaintext slot backend with CKKS level accounting
-  CkksBackend.hpp   OpenFHE backend; every rotation goes through KeyMemRT
-  CkksContext.hpp   CKKS parameters, key provisioning, bootstrap key bundle
-  KeyPlan.hpp       rotation-key plan, persistence, prefetch cursor
-  LinAlg.hpp        sumRows / sumCols / RE-Matmul / CE-Matmul / outer product
-  Layers.hpp        packed linear layer, PolyReLU, square, RSS gradient
-  Optim.hpp         encrypted Nesterov SGD, cosine LR
-  Model.hpp         local-loss blocks, eMLP builder, the training step
-  Trainer.hpp       batching, evaluation, training loop
-  Data.hpp          synthetic blobs and a CSV loader
+  layout.h         slot geometry: Repeated / Expanded packing, weight packing
+  tensor_graph.h   tensor-level IR with shapes and packings
+  autograd.h       reverse-mode differentiation
+  reboot_model.h   the eMLP, its local losses, the optimiser and bootstrapping
+  slot_graph.h     lowering to ckks-level slot operations
+  ckks_params.h    ring dimension, NTT prime chain, scheme parameters
+  mlir_emitter.h   ckks-dialect MLIR text
+  interpreter.h    plaintext evaluators for both levels (the test oracles)
+  data.h           synthetic blobs and a CSV loader
+lib/*.cc           implementations
 drivers/
-  reboot_plain.cpp  plaintext driver and key planner (no OpenFHE needed)
-  reboot_train.cpp  encrypted driver on KeyMemRT
+  reboot_emit.cc   build, differentiate, lower, emit
+  reboot_eval.cc   run the emitted step on plaintext slots
 tests/
-  test_linalg.cpp   packing algebra vs. direct matrix math
-  test_training.cpp packed training step vs. an independent unpacked reference
+  test_autograd.cc gradients vs finite differences; gradient locality
+  test_lowering.cc packed lowering vs tensor semantics
+  test_emitter.cc  op counts, rotation attributes, signature
 ```
 
----
+## 4. Building and running
 
-## 4. Building
-
-### Plaintext driver and tests — no dependencies
+Needs only a C++17 compiler and [{fmt}](https://fmt.dev/12.0/) 12:
 
 ```shell
 cmake -B build -S . && cmake --build build -j
 ctest --test-dir build --output-on-failure
-./build/reboot_plain --hidden 32,16 --epochs 3 --lr 0.01
 ```
 
-### Encrypted driver
-
-Needs the forked OpenFHE and a KeyMemRT checkout:
+Emit a training step:
 
 ```shell
-git clone https://github.com/eymay/openfhe-development && cd openfhe-development
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_UNITTESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF
-cmake --build build -j && sudo cmake --install build && sudo ldconfig
-
-git clone https://github.com/eymay/KeyMemRT
-cmake -B build -S . -DKEYMEMRT_DIR=/path/to/KeyMemRT
-cmake --build build -j
+./build/reboot_emit --hidden 64,32 --input-dim 64 --classes 10 \
+                    --batch-size 1 --log-n 13 --stats -o reboot_train_step.mlir
 ```
 
-## 5. Running
+Then run it through the compiler (see the KeyMemRT-Compiler README for the full
+pipeline):
 
 ```shell
-mkdir -p keys results
-
-# imperative: load one key per rotation, clear it straight after
-./build/reboot_train --key-mode imperative --input-dir ./keys --result-dir ./results \
-    --hidden 32,16 --dim 16 --classes 4 --samples 64 --batch-size 2 --epochs 1 \
-    --ring-dim 65536 --level-budget 3,3
-
-# prefetch: same, with the recorded plan driving background loads
-./build/reboot_train --key-mode prefetch --prefetch-sat 250 --lookahead 8 \
-    --input-dir ./keys --reuse-plan ...
-
-# ignore: baseline with every key resident, for comparison
-./build/reboot_train --key-mode ignore ...
+keymemrt-opt --ckks-to-lwe --lwe-to-openfhe \
+             --annotate-module="backend=openfhe scheme=ckks" \
+             --openfhe-configure-crypto-context --kmrt-merge-rotation-keys \
+             --bootstrap-rotation-analysis --openfhe-insert-clear-ops \
+             --kmrt-key-prefetching="runtime-delegated=1" --lower-affine \
+             reboot_train_step.mlir > reboot_train_step.opt.mlir
+keymemrt-translate --emit-openfhe-pke reboot_train_step.opt.mlir > reboot_train_step.cpp
 ```
 
-The paper's networks map onto `--hidden` as
-`eMLP-1: --hidden 32`, `eMLP-2: --hidden 64,32`, `eMLP-3: --hidden 128,64,32`;
-the packing alternates row/column down the network exactly as in the paper, and
-`reboot_plain` prints which layer got which.
+Check what the step does before compiling it:
 
-`--help` lists everything; the KeyMemRT flags (`--key-mode`, `--input-dir`,
-`--prefetch-sat`, `--log-level`, `--log-file`) are parsed by the runtime itself,
-so they behave exactly as in the KeyMemRT benchmarks. `ResourceMonitor` writes a
-memory/time trace to `--result-dir`.
+```shell
+./build/reboot_eval --hidden 16,8 --dim 8 --classes 3 --samples 128 --epochs 3
+# epoch  0 | loss   0.5457 | accuracy  84.4%
+# epoch  1 | loss   0.1585 | accuracy 100.0%
+# epoch  2 | loss   0.0576 | accuracy 100.0%
+```
 
-Start from `reboot_plain` to size things: it prints the architecture, the slot
-layout, the rotation indices, the level schedule and the required compute depth
-in under a second.
+The paper's networks map onto `--hidden` as `eMLP-1: 32`, `eMLP-2: 64,32`,
+`eMLP-3: 128,64,32`.
 
----
+## 5. What has been verified
 
-## 6. What has been verified
+* **Autograd** — gradients match central finite differences to ~1e-11; a
+  block's gradient matches the finite difference of its own loss and not of the
+  whole objective; batch gradients accumulate correctly.
+* **Lowering** — the slot graph reproduces the tensor semantics to ~1e-17 for
+  eMLP-1/2/3, all rotation indices are powers of two inside the slot vector,
+  and the column summation is the only source of right rotations.
+* **Emitter** — op counts match the slot graph, every `ckks.rotate` carries a
+  `static_shift`, the emitted index set equals the graph's, every product is
+  relinearised, and all results are returned.
+* **End to end in plaintext** — the emitted step trains: 84% → 100% on a
+  separable synthetic task in three epochs, executing the exact graph that gets
+  printed as MLIR.
 
-* `test_linalg` — the rotate-and-add rewrite reproduces the matrix algebra
-  exactly, in both packings, forwards and backwards, including batched weight
-  gradients; every index it uses is declared by `rotationIndices()`; the depth
-  of RE-Matmul (1) and CE-Matmul (2) matches the paper.
-* `test_training` — five packed training steps agree with an independent
-  unpacked reference implementation of the same local-loss algorithm to 1e-9 on
-  all four layers, and training converges on a separable synthetic task.
-* End to end under CKKS on the forked OpenFHE 1.2.3, without bootstrapping
-  (N = 2^13, one local-loss block): identical loss and accuracy under
-  `--key-mode ignore` and `--key-mode imperative`, the same 138 rotations, and
-  the imperative run finishes with nothing resident
-  (`KeyMemRT Stats: Keys loaded: 0`). The paging cost is visible and is the
-  trade-off KeyMemRT exists to quantify: 3.9 s per step resident against
-  10.2 s per step paged, on a 4-core container with the keys on local disk.
-* With bootstrapping enabled (N = 2^14, level budget 3,3, `--key-mode
-  imperative`): a full training step - forward, local updates, and a bootstrap
-  of every weight and velocity ciphertext - runs with the rotation keys still
-  paged one at a time and the bootstrapping bundle staged around the refresh
-  and dropped again. The encrypted step reports exactly the loss the plaintext
-  backend computes for the same configuration (2.1847), so the CKKS path with
-  bootstrapping is numerically faithful to the algorithm the tests check.
+Not verified here: the emitted text has not been run through `keymemrt-opt` in
+this environment (building it needs Bazel and a full MLIR/LLVM tree). The op
+names, attribute names and assembly formats are taken from the fork's own
+TableGen definitions — `CKKSOps.td` (`static_shift`, `from_basis`/`to_basis`,
+`scalar`), `LWETypes.td` (`lwe_plaintext` takes only `plaintext_space` in this
+fork, unlike the Orion translator's output) and `LWEOps.td` (`rlwe_encode`) —
+and the structural tests check the emitter against them, but a `keymemrt-opt`
+round trip is the obvious next step.
 
-Not yet done: a like-for-like memory and latency comparison against ReBoot's own
-numbers at the paper's parameters (N = 2^16/2^17, eMLP-1/2/3, MNIST) — that
-needs a machine with enough RAM to hold the `ignore`-mode baseline, which is the
-whole point of the comparison.
+## 6. Style
 
-## 7. Possible next steps
-
-* Feed the block's forward and backward passes through KeyMemRT-Compiler as
-  `ckks` dialect functions so `--kmrt-merge-rotation-keys` and
-  `--kmrt-key-prefetching` schedule the keys statically, and keep only the
-  optimiser and the bootstrap staging in the driver.
-* Register the bootstrap rotation indices (from `--bootstrap-rotation-analysis`)
-  with `keymem_rt` so the bundle becomes per-key managed too.
-* Baby-step/giant-step the `sumCols` replication tree to trade rotations for
-  depth on wide layouts.
+Google C++ style with tab indentation, snake_case functions, variables and file
+names, CamelCase types, and trailing-underscore members; `.clang-format` is in
+this directory. All formatting and output goes through {fmt} 12.
 
 ## Licence
 
-The ReBoot algorithm and the structure being ported are GPL-3.0 (see the
+The ReBoot algorithm being reimplemented is GPL-3.0 (see the
 [upstream repository](https://github.com/AI-Tech-Research-Lab/ReBoot)); this
-port keeps that licence.
+work keeps that licence.
