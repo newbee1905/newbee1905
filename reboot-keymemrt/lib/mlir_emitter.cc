@@ -4,6 +4,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <stdexcept>
 #include <vector>
 
@@ -105,25 +106,53 @@ class Emitter {
 						 scheme_param_attr(p, chain_)));
 	}
 
+	// One tensor in, one tensor out.
+	//
+	// keymemrt-translate emits C++ only for single-result functions
+	// (OpenFhePkeEmitter: "Only functions with a single return type are
+	// supported"), and a training step has to hand back every updated weight,
+	// every velocity and the predictions.  A `tensor<Nx!ct>` converts to
+	// `std::vector<CiphertextT>`, so bundling both sides keeps the generated
+	// signature translatable *and* independent of the network shape - the host
+	// runner fills a vector in the documented order instead of being rebuilt
+	// whenever a layer width changes.
 	void emit_function() {
 		const SlotGraph &g = step_.graph;
 		names_.assign(g.size(), "");
 
-		// Signature.
-		std::string args;
-		for (size_t i = 0; i < step_.arguments.size(); ++i) {
+		const size_t num_args = step_.arguments.size();
+		const size_t num_results = step_.results.size();
+		const std::string arg_type = fmt::format("tensor<{}x!ct>", num_args);
+		const std::string result_type =
+			fmt::format("tensor<{}x!ct>", num_results);
+
+		// The argument order is part of the ABI, so it travels with the module.
+		std::string names;
+		for (size_t i = 0; i < num_args; ++i)
+			names += fmt::format("{}\"{}\"", i ? ", " : "",
+								 step_.argument_names[i]);
+		std::string result_names;
+		for (size_t i = 0; i < num_results; ++i)
+			result_names += fmt::format("{}\"{}\"", i ? ", " : "",
+										step_.result_names[i]);
+
+		line(fmt::format(
+			"  func.func @{}(%args: {} {{reboot.argument_names = [{}]}}) -> {} "
+			"attributes {{reboot.result_names = [{}]}} {{",
+			options_.function_name, arg_type, names, result_type,
+			result_names));
+
+		const size_t max_index = std::max(num_args, num_results);
+		for (size_t i = 0; i < max_index; ++i)
+			line(fmt::format("    %idx{} = arith.constant {} : index", i, i));
+
+		for (size_t i = 0; i < num_args; ++i) {
 			const SlotId id = step_.arguments[i];
 			names_[id] = fmt::format("%arg{}", i);
-			args +=
-				fmt::format("{}{}: !ct {{reboot.name = \"{}\"}}", i ? ", " : "",
-							names_[id], step_.argument_names[i]);
+			line(fmt::format("    {} = tensor.extract %args[%idx{}] : {}  // {}",
+							 names_[id], i, arg_type,
+							 step_.argument_names[i]));
 		}
-		std::string results;
-		for (size_t i = 0; i < step_.results.size(); ++i)
-			results += fmt::format("{}!ct", i ? ", " : "");
-
-		line(fmt::format("  func.func @{}({}) -> ({}) {{",
-						 options_.function_name, args, results));
 
 		emit_constants();
 
@@ -132,11 +161,17 @@ class Emitter {
 			emit_value(v);
 		}
 
-		std::string returned;
-		for (size_t i = 0; i < step_.results.size(); ++i)
-			returned +=
-				fmt::format("{}{}", i ? ", " : "", names_[step_.results[i]]);
-		line(fmt::format("    return {} : {}", returned, results));
+		line(fmt::format("    %res_init = tensor.empty() : {}", result_type));
+		std::string accumulator = "%res_init";
+		for (size_t i = 0; i < num_results; ++i) {
+			const std::string next = fmt::format("%res_{}", i);
+			line(fmt::format(
+				"    {} = tensor.insert {} into {}[%idx{}] : {}  // {}", next,
+				names_[step_.results[i]], accumulator, i, result_type,
+				step_.result_names[i]));
+			accumulator = next;
+		}
+		line(fmt::format("    return {} : {}", accumulator, result_type));
 		line("  }");
 		line("}");
 	}

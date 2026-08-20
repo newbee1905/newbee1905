@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
 				DenseValue(static_cast<size_t>(layout.slots()), 0.0);
 		}
 
-		const Format prediction_format =
+		const PackFormat prediction_format =
 			g.value(step.predictions.front()).format;
 		std::mt19937 shuffle_rng(seed);
 
@@ -185,8 +185,8 @@ int main(int argc, char **argv) {
 							g.value(step.arguments[argument_index.at(x_name)])
 								.format,
 							layout);
-					for (Format format :
-						 {Format::kRepeated, Format::kExpanded}) {
+					for (PackFormat format :
+						 {PackFormat::kRepeated, PackFormat::kExpanded}) {
 						const std::string y_name =
 							fmt::format("y_{}_{}", format_name(format), b);
 						auto it = argument_index.find(y_name);

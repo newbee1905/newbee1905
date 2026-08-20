@@ -55,27 +55,27 @@ struct Layout {
 	}
 };
 
-enum class Format { kRepeated, kExpanded };
+enum class PackFormat { kRepeated, kExpanded };
 
-inline const char *format_name(Format f) {
-	return f == Format::kRepeated ? "repeated" : "expanded";
+inline const char *format_name(PackFormat f) {
+	return f == PackFormat::kRepeated ? "repeated" : "expanded";
 }
 
 // The format a packed linear layer expects on its input / produces on its
 // output.  `row_packing` selects between the two encodings of the weight
 // matrix.
-inline Format input_format(bool row_packing) {
-	return row_packing ? Format::kExpanded : Format::kRepeated;
+inline PackFormat input_format(bool row_packing) {
+	return row_packing ? PackFormat::kExpanded : PackFormat::kRepeated;
 }
-inline Format output_format(bool row_packing) {
-	return row_packing ? Format::kRepeated : Format::kExpanded;
+inline PackFormat output_format(bool row_packing) {
+	return row_packing ? PackFormat::kRepeated : PackFormat::kExpanded;
 }
 
 // Pack a plain vector into `layout.slots()` slots using `f`.
-inline std::vector<double> pack_vector(const std::vector<double> &v, Format f,
+inline std::vector<double> pack_vector(const std::vector<double> &v, PackFormat f,
 									   const Layout &layout) {
 	std::vector<double> out(static_cast<size_t>(layout.slots()), 0.0);
-	if (f == Format::kRepeated) {
+	if (f == PackFormat::kRepeated) {
 		if (static_cast<int>(v.size()) > layout.cols)
 			throw std::invalid_argument("vector longer than layout.cols");
 		for (int i = 0; i < layout.rows; ++i)
@@ -93,11 +93,11 @@ inline std::vector<double> pack_vector(const std::vector<double> &v, Format f,
 
 // Read the first `n` entries of a vector back out of a packed slot vector.
 inline std::vector<double> unpack_vector(const std::vector<double> &slots,
-										 Format f, const Layout &layout,
+										 PackFormat f, const Layout &layout,
 										 int n) {
 	std::vector<double> out(static_cast<size_t>(n), 0.0);
 	for (int k = 0; k < n; ++k) {
-		size_t idx = (f == Format::kRepeated)
+		size_t idx = (f == PackFormat::kRepeated)
 						 ? static_cast<size_t>(k)				  // row 0
 						 : static_cast<size_t>(k) * layout.cols;  // column 0
 		out[static_cast<size_t>(k)] = slots[idx];

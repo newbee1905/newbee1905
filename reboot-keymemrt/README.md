@@ -113,17 +113,33 @@ refreshed state plus the predictions.
 
 ```mlir
 module attributes {ckks.schemeParam = #ckks.scheme_param<logN = 12, Q = [...], P = [...], logDefaultScale = 26>} {
-  func.func @reboot_train_step(%arg0: !ct {reboot.name = "w_head"}, ... ) -> (!ct, ...) {
+  func.func @reboot_train_step(%args: tensor<6x!ct> {reboot.argument_names = ["w_head", "v_w_head", "w_out", "v_w_out", "x_0", "y_expanded_0"]})
+      -> tensor<5x!ct> attributes {reboot.result_names = ["w_head_next", "v_w_head_next", "w_out_next", "v_w_out_next", "y_hat_0"]} {
+    %idx0 = arith.constant 0 : index
+    %arg0 = tensor.extract %args[%idx0] : tensor<6x!ct>  // w_head
+    ...
     %0 = ckks.mul %arg4, %arg0 : (!ct, !ct) -> !ct_d3
     %1 = ckks.relinearize %0 {from_basis = array<i32: 0, 1, 2>, to_basis = array<i32: 0, 1>} : (!ct_d3) -> !ct
     %2 = ckks.rotate %1 {static_shift = 8 : i64} : !ct
     %3 = ckks.add %1, %2 : (!ct, !ct) -> !ct
     ...
     %n = ckks.bootstrap %m : !ct -> !ct      // w_head_next
-    return ...
+    %res_init = tensor.empty() : tensor<5x!ct>
+    %res_0 = tensor.insert %n into %res_init[%idx0] : tensor<5x!ct>
+    ...
+    return %res_4 : tensor<5x!ct>
   }
 }
 ```
+
+One tensor in, one tensor out. `keymemrt-translate` emits C++ only for
+single-result functions (`OpenFhePkeEmitter.cpp:355`), and a training step has
+to return every updated weight, every velocity and the predictions - so both
+sides of the signature travel as one `tensor<Nx!ct>`, which `convertType` turns
+into `std::vector<CiphertextT>`. That also makes the generated ABI independent
+of the network shape: the host fills a vector in the order the module records in
+`reboot.argument_names`, instead of being rebuilt whenever a layer width
+changes.
 
 The `static_shift` attribute is the point of the exercise: `--ckks-to-lwe` and
 `--lwe-to-openfhe` rewrite each `ckks.rotate` into `kmrt.load_key` /
@@ -153,6 +169,9 @@ lib/*.cc           implementations
 drivers/
   reboot_emit.cc   build, differentiate, lower, emit
   reboot_eval.cc   run the emitted step on plaintext slots
+  reboot_runner.cc host driver for the generated OpenFHE code
+scripts/
+  run_keymemrt.sh  emit -> keymemrt-opt -> keymemrt-translate -> build -> run
 tests/
   test_autograd.cc gradients vs finite differences; gradient locality
   test_lowering.cc packed lowering vs tensor semantics
@@ -175,18 +194,70 @@ Emit a training step:
                     --batch-size 1 --log-n 13 --stats -o reboot_train_step.mlir
 ```
 
-Then run it through the compiler (see the KeyMemRT-Compiler README for the full
-pipeline):
+### Running it under KeyMemRT
+
+`scripts/run_keymemrt.sh` does the whole chain; set two variables first:
 
 ```shell
-keymemrt-opt --ckks-to-lwe --lwe-to-openfhe \
-             --annotate-module="backend=openfhe scheme=ckks" \
-             --openfhe-configure-crypto-context --kmrt-merge-rotation-keys \
-             --bootstrap-rotation-analysis --openfhe-insert-clear-ops \
-             --kmrt-key-prefetching="runtime-delegated=1" --lower-affine \
-             reboot_train_step.mlir > reboot_train_step.opt.mlir
-keymemrt-translate --emit-openfhe-pke reboot_train_step.opt.mlir > reboot_train_step.cpp
+export KEYMEMRT_COMPILER=/path/to/KeyMemRT-Compiler   # tools built with bazel
+export KEYMEMRT=/path/to/KeyMemRT                      # for include/KeyMemRT.hpp
+export MODEL_FLAGS="--hidden 32,16 --input-dim 16 --classes 4 --batch-size 1 --log-n 13"
+KEY_MODE=imperative STEPS=4 ./scripts/run_keymemrt.sh
 ```
+
+The five steps it runs, if you would rather do them by hand:
+
+1. **Emit** — `./build/reboot_emit $MODEL_FLAGS -o reboot_train_step.mlir`
+
+2. **Place the key management** —
+
+   ```shell
+   keymemrt-opt --ckks-to-lwe --lwe-to-openfhe \
+                --annotate-module="backend=openfhe scheme=ckks" \
+                --openfhe-configure-crypto-context --kmrt-merge-rotation-keys \
+                --bootstrap-rotation-analysis --cse --openfhe-insert-clear-ops \
+                reboot_train_step.mlir > reboot_train_step.opt.mlir
+   ```
+
+   Add `--kmrt-key-prefetching="runtime-delegated=1" --lower-affine`
+   (`PREFETCH=1` in the script) for KeyMemRT's Balanced mode.
+
+3. **Translate** —
+   `keymemrt-translate --emit-openfhe-pke reboot_train_step.opt.mlir > reboot_train_step.cc`
+
+4. **Link with a host.** The generated file is a library. It expects a global
+   `KeyMemRT keymem_rt;` and a `std::unique_ptr<ResourceMonitor> monitor;`, and
+   exposes three entry points:
+
+   ```cpp
+   CryptoContextT reboot_train_step__generate_crypto_context();
+   CryptoContextT reboot_train_step__configure_crypto_context(CryptoContextT, PrivateKeyT);
+   std::vector<CiphertextT> reboot_train_step(CryptoContextT, std::vector<CiphertextT>);
+   ```
+
+   `drivers/reboot_runner.cc` is that host: it defines the globals, generates
+   the key pair, calls `__configure_crypto_context` as the client (which
+   generates, compresses and serialises the rotation keys through KeyMemRT and
+   then drops them), encrypts the weights, velocities, inputs and one-hot labels
+   in the right packing, and loops — feeding each step's returned state back in
+   as the next step's arguments. It links against this frontend library and
+   rebuilds the same graph, so the argument order and the packing come from one
+   place rather than being duplicated by hand. Give it the *same* model flags as
+   `reboot_emit`.
+
+5. **Run** —
+
+   ```shell
+   SERIALIZED_DATA_DIR=./keys ./build/generated/reboot_runner \
+       --key-mode imperative --input-dir ./keys --result-dir ./results \
+       --steps 4 $MODEL_FLAGS
+   ```
+
+   `--key-mode` picks the strategy: `ignore` keeps every key resident (the
+   baseline), `imperative` pages one key in per rotation and drops it after,
+   `prefetch` overlaps the loads with the computation under the
+   `--prefetch-sat` tower budget. `ResourceMonitor` writes a memory and time
+   trace to `--result-dir`.
 
 Check what the step does before compiling it:
 

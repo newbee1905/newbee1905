@@ -120,20 +120,33 @@ int main() {
 	fmt::print("  {} rotations over {} distinct indices\n", rotates,
 			   emitted.size());
 
-	fmt::print("signature and results\n");
-	check(count_occurrences(mlir, "reboot.name = ") == lowered.arguments.size(),
-		  "every argument is named for the runner");
+	// keymemrt-translate only emits C++ for single-result functions, so both
+	// sides of the ABI travel as one tensor of ciphertexts, which converts to
+	// std::vector<CiphertextT>.
+	fmt::print("tensor ABI is translatable\n");
+	check(mlir.find(fmt::format("(%args: tensor<{}x!ct>",
+								lowered.arguments.size())) != std::string::npos,
+		  "arguments arrive as one tensor");
+	check(mlir.find(fmt::format("-> tensor<{}x!ct>", lowered.results.size())) !=
+			  std::string::npos,
+		  "results leave as one tensor");
+	check(count_occurrences(mlir, "tensor.extract ") == lowered.arguments.size(),
+		  "every argument is extracted once");
+	check(count_occurrences(mlir, "tensor.insert ") == lowered.results.size(),
+		  "every result is inserted once");
+	check(count_occurrences(mlir, "tensor.empty()") == 1,
+		  "one result tensor is allocated");
+	check(count_occurrences(mlir, "return ") == 1, "a single value is returned");
+
+	fmt::print("the ABI names travel with the module\n");
 	for (const std::string &name :
 		 {"w_fwd_0", "v_w_fwd_0", "w_out", "x_0", "y_repeated_0"})
-		check(mlir.find(fmt::format("reboot.name = \"{}\"", name)) !=
-				  std::string::npos,
-			  fmt::format("argument {} is present", name));
-
-	const size_t return_pos = mlir.rfind("return ");
-	check(return_pos != std::string::npos, "the function returns");
-	const std::string tail = mlir.substr(return_pos);
-	check(count_occurrences(tail, "%") == lowered.results.size(),
-		  "all updated weights, velocities and predictions are returned");
+		check(mlir.find(fmt::format("\"{}\"", name)) != std::string::npos,
+			  fmt::format("argument {} is named", name));
+	check(mlir.find("reboot.argument_names = [") != std::string::npos,
+		  "argument order is recorded for the runner");
+	check(mlir.find("reboot.result_names = [") != std::string::npos,
+		  "result order is recorded for the runner");
 
 	fmt::print("no placeholders left behind\n");
 	check(mlir.find("%-1") == std::string::npos, "no unresolved values");

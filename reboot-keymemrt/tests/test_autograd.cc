@@ -57,7 +57,7 @@ void test_chain_rule() {
 	fmt::print("gradients against finite differences\n");
 
 	TensorGraph g;
-	const ValueId x = g.input("x", 4, Format::kExpanded);
+	const ValueId x = g.input("x", 4, PackFormat::kExpanded);
 	const ValueId w1 = g.param("w1", 4, 3, /*row_packing=*/true);
 	const ValueId w2 = g.param("w2", 3, 2, /*row_packing=*/false);
 	const ValueId h = g.poly_relu(g.matmul(x, w1));

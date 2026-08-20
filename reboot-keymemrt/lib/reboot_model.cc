@@ -160,7 +160,7 @@ TrainStep build_train_step(const ModelConfig &config, const Layout &layout) {
 	}
 
 	// ---- inputs ------------------------------------------------------------
-	const Format first_format = input_format(specs.front().row_packing);
+	const PackFormat first_format = input_format(specs.front().row_packing);
 	std::vector<ValueId> x(config.batch_size);
 	for (int b = 0; b < config.batch_size; ++b) {
 		x[b] = g.input(fmt::format("x_{}", b), config.input_dim, first_format);
@@ -171,7 +171,7 @@ TrainStep build_train_step(const ModelConfig &config, const Layout &layout) {
 	// The reference implementation re-encrypts the plaintext labels inside
 	// every block, which a non-interactive server could not do.
 	std::map<std::pair<int, int>, ValueId> labels;
-	auto label = [&](int sample, Format format) {
+	auto label = [&](int sample, PackFormat format) {
 		const std::pair<int, int> key{sample, static_cast<int>(format)};
 		auto it = labels.find(key);
 		if (it != labels.end()) return it->second;

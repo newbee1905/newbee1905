@@ -60,7 +60,7 @@ void TensorGraph::set_name(ValueId id, const std::string &name) {
 	values_.at(id).name = name;
 }
 
-ValueId TensorGraph::input(const std::string &name, int length, Format format) {
+ValueId TensorGraph::input(const std::string &name, int length, PackFormat format) {
 	TensorValue v;
 	v.op = TensorOp::kInput;
 	v.shape = Shape{1, length};
@@ -139,7 +139,7 @@ ValueId TensorGraph::outer(ValueId x, ValueId g) {
 	v.inputs = {x, g};
 	// x Expanded (down the rows) and g Repeated (along the row) is exactly the
 	// row-packed weight layout; the mirrored case is the column-packed one.
-	v.row_packing = xv.format == Format::kExpanded;
+	v.row_packing = xv.format == PackFormat::kExpanded;
 	return push(std::move(v));
 }
 

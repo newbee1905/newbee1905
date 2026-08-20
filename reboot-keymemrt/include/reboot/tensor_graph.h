@@ -71,14 +71,14 @@ struct TensorValue {
 	std::string name;	  // leaves and anything worth reading in a dump
 
 	// Packing: `format` applies to vectors, `row_packing` to matrices.
-	Format format = Format::kRepeated;
+	PackFormat format = PackFormat::kRepeated;
 	bool row_packing = true;
 };
 
 class TensorGraph {
    public:
 	// ---- leaves ------------------------------------------------------------
-	ValueId input(const std::string &name, int length, Format format);
+	ValueId input(const std::string &name, int length, PackFormat format);
 	ValueId param(const std::string &name, int rows, int cols,
 				  bool row_packing);
 
