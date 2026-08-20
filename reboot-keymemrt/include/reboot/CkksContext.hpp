@@ -18,6 +18,7 @@
 #ifndef REBOOT_CKKSCONTEXT_HPP_
 #define REBOOT_CKKSCONTEXT_HPP_
 
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>

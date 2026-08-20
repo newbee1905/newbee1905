@@ -52,7 +52,7 @@ void printHelp() {
       "  --ring-dim n        ring dimension used to size the layout (8192)\n"
       "  --epochs n          training epochs (3)\n"
       "  --batch-size n      batch size (8)\n"
-      "  --lr f              learning rate (0.02)\n"
+      "  --lr f              learning rate (0.01)\n"
       "  --plan-out path     write the rotation key plan to this file\n"
       "  --quiet             only print epoch summaries\n");
 }
@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
   std::vector<int> hidden{32, 16};
   int dim = 16, classes = 4, samples = 512, ringDim = 8192;
   int epochs = 3, batchSize = 8;
-  double lr = 0.02;
+  double lr = 0.01;
   std::string csv, planOut;
   bool quiet = false;
 

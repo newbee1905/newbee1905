@@ -11,6 +11,7 @@
 #ifndef REBOOT_LAYERS_HPP_
 #define REBOOT_LAYERS_HPP_
 
+#include <cmath>
 #include <memory>
 #include <random>
 #include <string>
