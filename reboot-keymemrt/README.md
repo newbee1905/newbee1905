@@ -295,11 +295,13 @@ in under a second.
   (`KeyMemRT Stats: Keys loaded: 0`). The paging cost is visible and is the
   trade-off KeyMemRT exists to quantify: 3.9 s per step resident against
   10.2 s per step paged, on a 4-core container with the keys on local disk.
-* With bootstrapping enabled (N = 2^14, level budget 3,3): the bootstrapping
-  keys are written as a bundle, staged around the weight refresh and dropped
-  again, and a full training step - forward, local updates, and a bootstrap of
-  every weight and velocity ciphertext - completes with the rotation keys still
-  paged one at a time.
+* With bootstrapping enabled (N = 2^14, level budget 3,3, `--key-mode
+  imperative`): a full training step - forward, local updates, and a bootstrap
+  of every weight and velocity ciphertext - runs with the rotation keys still
+  paged one at a time and the bootstrapping bundle staged around the refresh
+  and dropped again. The encrypted step reports exactly the loss the plaintext
+  backend computes for the same configuration (2.1847), so the CKKS path with
+  bootstrapping is numerically faithful to the algorithm the tests check.
 
 Not yet done: a like-for-like memory and latency comparison against ReBoot's own
 numbers at the paper's parameters (N = 2^16/2^17, eMLP-1/2/3, MNIST) — that
