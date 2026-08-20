@@ -271,7 +271,54 @@ Check what the step does before compiling it:
 The paper's networks map onto `--hidden` as `eMLP-1: 32`, `eMLP-2: 64,32`,
 `eMLP-3: 128,64,32`.
 
-## 5. What has been verified
+## 5. Rotation-key memory, measured
+
+`tools/measure_key_memory.cc` builds one context and populates it two ways: the
+key set ReBoot's `lib/cryptocontext.py` builds (`EvalMultKeyGen`,
+`EvalSumKeyGen`, `EvalSumRowsKeyGen(col_size)`, `EvalSumColsKeyGen`), and the
+rotation indices the emitted module names, generated, compressed, serialised one
+file each and dropped. Sizes are measured by walking each key's RNS limbs, with
+keys shared between the EvalSum and automorphism maps counted once.
+
+```shell
+KEYMEMRT=/path/to/KeyMemRT ./scripts/measure_key_memory.sh --log-n 16 --depth 24
+```
+
+Measured on the forked OpenFHE 1.2.3, `HEStd_NotSet`, 50-bit scaling modulus:
+
+| | N = 2^14, depth 11 | N = 2^16, depth 24 |
+| --- | --- | --- |
+| ReBoot: keys resident | 25 | 29 |
+| ReBoot: key material | **300 MB** | **2871 MB** |
+| KeyMemRT: indices named by the step | 18 | 20 |
+| KeyMemRT: keys resident | 1 | 1 |
+| KeyMemRT: key material | **12 MB** | **99 MB** |
+| reduction | **25x** | **29x** |
+
+Two separate effects. Naming the rotations shrinks the set that has to exist at
+all — `EvalSumKeyGen` provisions every power-of-two rotation whether the program
+uses it or not, so ReBoot holds 25 or 29 keys where the step actually performs
+rotations over 18 or 20 distinct indices. Paging then drops the resident set to
+one. On top of that, KeyMemRT stores each key truncated to the level it is used
+at, so the deeper half of the step pays less than the headline figure:
+
+```
+key size against the level it is used at   (N = 2^14, depth 11)
+  level  1: 12.0 MB      level  6:  8.2 MB
+  level  3: 10.5 MB      level  7:  7.5 MB
+  level  4:  9.8 MB      level  8:  6.8 MB
+  level  5:  9.0 MB      level 10:  5.2 MB
+```
+
+Caveats worth stating: this measures **rotation keys**, which is what KeyMemRT
+manages and what dominates FHE memory — not the bootstrapping key set, which
+both sides must hold and which KeyMemRT stages as one bundle around the weight
+refresh. Process RSS is reported too but is the weaker number, since the
+allocator does not return freed pages; the key-material figures are exact. And
+the numbers are for the emitted step at those parameters, not a rerun of the
+paper's eMLP-1/2/3 on MNIST.
+
+## 6. What has been verified
 
 * **Autograd** — gradients match central finite differences to ~1e-11; a
   block's gradient matches the finite difference of its own loss and not of the
@@ -295,7 +342,7 @@ fork, unlike the Orion translator's output) and `LWEOps.td` (`rlwe_encode`) —
 and the structural tests check the emitter against them, but a `keymemrt-opt`
 round trip is the obvious next step.
 
-## 6. Style
+## 7. Style
 
 Google C++ style with tab indentation, snake_case functions, variables and file
 names, CamelCase types, and trailing-underscore members; `.clang-format` is in
