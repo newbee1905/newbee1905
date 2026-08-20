@@ -127,8 +127,8 @@ void test_gradient_locality() {
 	for (value_id_t id : step.arguments) {
 		const tensor_value_t &v = g.value(id);
 		const size_t n = static_cast<size_t>(v.shape.rows) * v.shape.cols;
-		// Velocities start at zero, which is what makes a single Nesterov rule
-		// reproduce ReBoot's separate first-step branch.
+		// Velocities start at zero, so a single Nesterov rule reproduces
+		// ReBoot's separate first-step branch.
 		inputs[id] = v.name.rfind("v_", 0) == 0 ? std::vector<double>(n, 0.0)
 												: random_dense(n, rng, 0.4);
 	}

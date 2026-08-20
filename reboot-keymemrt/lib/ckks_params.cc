@@ -56,7 +56,7 @@ bool is_prime(uint64_t n) {
 
 // Largest prime below 2^bits that is congruent to 1 modulo `modulus` and not
 // already in `used`.  Walking downwards keeps the primes close to the requested
-// width, which is what the scaling factor assumes.
+// width, as the scaling factor assumes.
 uint64_t find_prime(int bits, uint64_t modulus,
 					const std::vector<uint64_t> &used) {
 	if (bits < 10 || bits > 62)

@@ -10,10 +10,10 @@
 // outer(x, g)`, which lower to the same weight ciphertext summed the other way
 // and to a bare elementwise product.
 //
-// The seeds are given rather than derived from a scalar loss node, because
-// ReBoot never materialises the loss: for the residual sum of squares
-// L = 1/2 |y_hat - y|^2 the seed is simply y_hat - y, and computing it costs
-// one subtraction instead of a full slot reduction.
+// Callers supply the seeds; no scalar loss node exists to derive them from,
+// because ReBoot never materialises the loss. For the residual sum of squares
+// L = 1/2 |y_hat - y|^2 the seed is y_hat - y, which costs one subtraction
+// where a scalar loss would cost a full slot reduction.
 
 #ifndef REBOOT_AUTOGRAD_H_
 #define REBOOT_AUTOGRAD_H_
@@ -42,7 +42,7 @@ using gradient_map_t = std::map<value_id_t, value_id_t>;
 
 // Differentiate the objective described by `seeds`.  Nodes behind a
 // stop_gradient are reached in the forward direction but never receive an
-// adjoint, which is what confines each block's error signal to that block.
+// adjoint. That is how each block's error signal stays inside its block.
 gradient_map_t backward(tensor_graph_t &graph,
 						const std::vector<gradient_seed_t> &seeds);
 

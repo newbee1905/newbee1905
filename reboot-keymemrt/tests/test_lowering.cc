@@ -7,8 +7,8 @@
 // updated weights, updated velocities and predictions.
 //
 // A wrong rotation index, a wrong summation direction or a mask that clips the
-// wrong slots all show up here, which is what makes it safe to emit the slot
-// graph as MLIR without an FHE library in the loop.
+// wrong slots all show up here, so the slot graph can be emitted as MLIR
+// without an FHE library in the loop.
 
 #include <fmt/format.h>
 

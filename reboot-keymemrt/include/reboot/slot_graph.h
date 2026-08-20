@@ -15,11 +15,10 @@
 //             for k = 1, 2, ... < cols:           x += rot(x, -k)
 //             row sums replicated across every row, one masking level
 //
-// Spelling the rotations out is the whole point: KeyMemRT pages rotation keys
-// one index at a time, so the indices have to appear in the IR.  OpenFHE's
-// EvalSumRows / EvalSumCols, which the reference implementation calls, hide
-// them inside the library and draw on the EvalSum key map that KeyMemRT does
-// not manage.
+// The rotations are spelled out because KeyMemRT pages rotation keys one index
+// at a time, so the indices have to appear in the IR.  OpenFHE's EvalSumRows and
+// EvalSumCols, which the reference implementation calls, hide them inside the
+// library and draw on the EvalSum key map that KeyMemRT does not manage.
 
 #ifndef REBOOT_SLOT_GRAPH_H_
 #define REBOOT_SLOT_GRAPH_H_

@@ -17,8 +17,8 @@ value_id_t rss_seed(tensor_graph_t &graph, value_id_t prediction,
 namespace {
 
 // Adjoints accumulate: a value feeding several consumers sums their
-// contributions, which is what makes a shared weight collect the gradient of
-// every sample in the batch.
+// contributions, so a shared weight collects the gradient of every sample in
+// the batch.
 void accumulate(tensor_graph_t &graph, gradient_map_t &grads, value_id_t value,
 				value_id_t contribution) {
 	auto it = grads.find(value);

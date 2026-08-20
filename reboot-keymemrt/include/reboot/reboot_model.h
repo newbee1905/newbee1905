@@ -55,8 +55,8 @@ struct param_binding_t {
 };
 
 // One term of the training objective: 1/2 |prediction - label|^2.  A block's
-// term is the only one that reaches its weights, which is what "local error
-// signal" means and what the gradient locality test checks.
+// term is the only one that reaches its weights. That confinement is the
+// meaning of "local error signal", and the gradient locality test checks it.
 struct loss_term_t {
 	std::string name;
 	value_id_t prediction = no_value;

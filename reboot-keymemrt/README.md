@@ -6,7 +6,7 @@ A pure C++ reimplementation of the **ReBoot** encrypted-training method
 [code](https://github.com/AI-Tech-Research-Lab/ReBoot)) that builds the network,
 **differentiates the training step itself**, lowers ReBoot's packing to explicit
 slot operations, and emits `ckks`-dialect **MLIR** for
-[KeyMemRT-Compiler](https://github.com/eymay/KeyMemRT-Compiler) — which then
+[KeyMemRT-Compiler](https://github.com/eymay/KeyMemRT-Compiler). The compiler
 generates the OpenFHE code and the KeyMemRT key management against
 [eymay/openfhe-development](https://github.com/eymay/openfhe-development).
 
@@ -29,8 +29,8 @@ generates the OpenFHE code and the KeyMemRT key management against
                               rotation, linked with drivers/reboot_runner.cc
 ```
 
-Measured effect on the thing KeyMemRT exists to fix: at N = 2¹⁶ the rotation-key
-working set drops from **2871 MB to 99 MB** — [§6](#6-rotation-key-memory-measured).
+At N = 2¹⁶ the rotation-key working set drops from **2871 MB to 99 MB**.
+Method and caveats in [§6](#6-rotation-key-memory-measured).
 
 ---
 
@@ -65,15 +65,15 @@ what it emits.
 | [KeyMemRT-Compiler](https://github.com/eymay/KeyMemRT-Compiler) | Bazel 8.1.0 | `keymemrt-opt`, `keymemrt-translate` | source |
 | cereal | any | generated code includes it | distro (`libcereal-dev`) |
 
-Two version constraints are not negotiable:
+Two versions are fixed, and substituting either one breaks the build:
 
 - **{fmt} 12.** `CMakeLists.txt` asks for `find_package(fmt 12 REQUIRED)`.
-  Debian and Ubuntu ship 9 or 10, so it is built from source below.
-- **The OpenFHE fork, not upstream.** The fork adds `Get/SetDynamicQSize` to
-  evaluation keys, used by `keyswitch-hybrid.cpp:452`. That is what lets hybrid
-  key switching consume a key truncated to fewer towers, which is the whole
-  basis of KeyMemRT's `RNSKeyCompressor` and `serializeKeysAtLevel()`. Upstream
-  OpenFHE has no such field and compressed keys will not work against it.
+  Debian and Ubuntu ship 9 or 10, so §3.2 builds it from source.
+- **The eymay fork of OpenFHE.** The fork adds `Get/SetDynamicQSize` to
+  evaluation keys, read by `keyswitch-hybrid.cpp:452`. Hybrid key switching
+  needs that field to accept a key truncated to fewer towers, and KeyMemRT's
+  `RNSKeyCompressor` and `serializeKeysAtLevel()` are built on it. Upstream
+  OpenFHE lacks the field, so compressed keys fail against it.
 
 Revisions this was developed and measured against:
 
@@ -129,14 +129,14 @@ There is an `.envrc` for direnv users (`direnv allow`).
 
 - **`keymemrt-opt` and `keymemrt-translate` are not packaged.** They are Bazel
   targets over a full MLIR/LLVM tree, and Bazel fetches dependencies from the
-  network, which a Nix build sandbox forbids. `bazelisk` is in the dev shell so
-  you can build them yourself — [§3.4](#34-keymemrt-compiler) applies unchanged
-  inside `nix develop`.
-- **The expressions are unverified.** They were written from the working manual
-  setup below, but there was no Nix in the environment they were developed in,
-  so treat `nix develop` failing as a bug report rather than a mystery. The
-  `submodules=1` on the OpenFHE input in particular is load-bearing (see
-  [§7](#7-troubleshooting)) and is the first thing to suspect.
+  network, which a Nix build sandbox forbids. `bazelisk` ships in the dev shell,
+  so build them yourself: [§3.5](#35-keymemrt-compiler) works unchanged inside
+  `nix develop`.
+- **The expressions are unverified.** They were written from the manual setup
+  below, which does work, but no Nix was available in the environment where this
+  was developed. If `nix develop` fails, that is a bug and not a local
+  misconfiguration. Suspect `?submodules=1` on the OpenFHE input first (see
+  [§7](#7-troubleshooting)).
 
 ---
 
@@ -182,8 +182,8 @@ sudo cmake --install build
 sudo ldconfig
 ```
 
-Turning the unit tests, examples and benchmarks off is what makes this bearable:
-about **5 minutes** on 4 cores instead of the best part of an hour. Installs to
+Disabling the unit tests, examples and benchmarks cuts the build from close to
+an hour down to about **5 minutes** on 4 cores. Installs to
 `/usr/local/include/openfhe` and `/usr/local/lib`.
 
 Verify the fork, not upstream, is what you have:
@@ -198,7 +198,7 @@ rotation keys will not work.
 
 ### 3.4 KeyMemRT
 
-Header-only for our purposes — no build step, just the checkout:
+Header-only for this purpose, so a checkout is all that is required:
 
 ```shell
 git clone https://github.com/eymay/KeyMemRT
@@ -243,8 +243,9 @@ Test #3: test_emitter .....   Passed
 Test #4: test_options .....   Passed
 ```
 
-Nothing in the frontend links against OpenFHE — it builds a graph, differentiates
-it and prints text. `-DKEYMEMRT_DIR` only adds `measure_key_memory`.
+The frontend links against no FHE library at all. It builds a graph,
+differentiates it and prints text. `-DKEYMEMRT_DIR` adds one extra target,
+`measure_key_memory`.
 
 Sanity check, no crypto involved, about a second:
 
@@ -255,9 +256,10 @@ Sanity check, no crypto involved, about a second:
 # epoch  2 | loss   0.0576 | accuracy 100.0%
 ```
 
-That runs the *same graph* `reboot_emit` prints as MLIR, with ciphertexts
-replaced by slot vectors. If it learns, the emitted program is the training step
-it claims to be.
+This runs the *same graph* that `reboot_emit` prints as MLIR, with ciphertexts
+replaced by slot vectors. Convergence here means the emitted program really is a
+training step; what the FHE backend adds on top is approximation noise and cost,
+not different arithmetic.
 
 ---
 
@@ -296,9 +298,10 @@ for KeyMemRT's Balanced mode.
   distinct rotation indices: 18
 ```
 
-Alongside the `.mlir` it writes `reboot_train_step.mlir.manifest` — the model,
-the layout and the argument and result order of the generated function. The
-runner reads that instead of being handed the same flags again ([§5.3](#53-the-manifest)).
+Alongside the `.mlir` it writes `reboot_train_step.mlir.manifest`, recording the
+model, the layout, and the argument and result order of the generated function.
+The runner reads that file, so nobody has to retype the flags
+([§5.3](#53-the-manifest)).
 
 **2. Place the key management.**
 
@@ -311,8 +314,9 @@ keymemrt-opt --ckks-to-lwe --lwe-to-openfhe \
 ```
 
 Every `ckks.rotate {static_shift = k}` becomes `kmrt.load_key` / `openfhe.rot` /
-`kmrt.clear_key`. That is the whole reason the packing is lowered to explicit
-rotations rather than left as `EvalSumRows`/`EvalSumCols`.
+`kmrt.clear_key`. This rewrite is why the packing is lowered to explicit
+rotations: `EvalSumRows` and `EvalSumCols` name no indices for the pass to
+match on.
 
 **3. Translate.**
 
@@ -322,8 +326,8 @@ keymemrt-translate --emit-openfhe-pke reboot_train_step.opt.mlir \
 ```
 
 **4. Link with a host.** The generated file is a *library*. It expects two
-globals — `KeyMemRT keymem_rt;` and `std::unique_ptr<ResourceMonitor> monitor;`
-(the latter from `generic_header.h`) — and exposes three entry points:
+globals, `KeyMemRT keymem_rt;` and `std::unique_ptr<ResourceMonitor> monitor;`
+(the second from `generic_header.h`), and exposes three entry points:
 
 ```cpp
 CryptoContextT reboot_train_step__generate_crypto_context();
@@ -344,8 +348,8 @@ g++ -std=c++17 -O2 -fopenmp \
   -L /usr/local/lib -lOPENFHEpke -lOPENFHEcore -lOPENFHEbinfhe -lfmt
 ```
 
-The `-I /usr` is not a typo: generated code includes cereal as
-`include/cereal/...`, so `/usr` has to be on the include path for that to
+The `-I /usr` is deliberate: generated code includes cereal as
+`include/cereal/...`, so `/usr` must be on the include path for that spelling to
 resolve to `/usr/include/cereal/...`.
 
 **5. Run.**
@@ -362,7 +366,7 @@ SERIALIZED_DATA_DIR=./keys ./reboot_runner \
 
 | mode | behaviour |
 | --- | --- |
-| `ignore` | every key resident for the whole run — the baseline |
+| `ignore` | every key resident for the entire run; the baseline |
 | `imperative` | one key paged in per rotation, dropped after |
 | `prefetch` | background loads overlap the computation, bounded by `--prefetch-sat` |
 | `speculative` | as imperative, but waits for keys to arrive (cold start) |
@@ -382,8 +386,9 @@ module was emitted with '11'.  Re-emit the module, or point --manifest at the
 one written beside it.
 ```
 
-Passing "the same flags" to both would not be a contract — one mistyped width
-builds a different argument order and the run is wrong rather than broken.
+Retyping the same flags for both binaries would not be a contract. One mistyped
+width builds a different argument order, and the run then produces wrong numbers
+instead of failing.
 
 ---
 
@@ -392,8 +397,8 @@ builds a different argument order and the run is wrong rather than broken.
 `tools/measure_key_memory.cc` builds one context and populates it two ways: the
 key set ReBoot's `lib/cryptocontext.py` builds (`EvalMultKeyGen`,
 `EvalSumKeyGen`, `EvalSumRowsKeyGen(col_size)`, `EvalSumColsKeyGen`), and the
-rotation indices the emitted module names — generated, compressed, written one
-file each and dropped.
+rotation indices the emitted module names, which are generated, compressed,
+written one file each, and dropped.
 
 ```shell
 KEYMEMRT=$KEYMEMRT ./scripts/measure_key_memory.sh --log-n 16 --depth 24
@@ -413,9 +418,9 @@ automorphism maps counted once:
 | reduction | **25×** | **29×** |
 
 Two effects compound. Naming the rotations shrinks the set that has to exist at
-all — `EvalSumKeyGen` provisions every power-of-two rotation whether the program
-uses it or not. Paging then drops the resident set to one. On top of that,
-KeyMemRT stores each key truncated to the level it is used at:
+all, since `EvalSumKeyGen` provisions every power-of-two rotation whether the
+program uses it or not. Paging then drops the resident set to one. On top of
+that, KeyMemRT stores each key truncated to the level it is used at:
 
 ```
 key size against the level it is used at   (N = 2^14, depth 11)
@@ -425,11 +430,12 @@ key size against the level it is used at   (N = 2^14, depth 11)
   level  5:  9.0 MB      level 10:  5.2 MB
 ```
 
-This measures **rotation keys**, which is what KeyMemRT manages and what
-dominates FHE memory — not the bootstrapping key set, which both sides hold and
-which KeyMemRT stages as one bundle around the weight refresh. Process RSS is
-reported too but is the weaker number, since the allocator does not return freed
-pages; the key-material figures are exact.
+The figures cover **rotation keys**: the memory KeyMemRT manages, and the
+dominant term in an FHE process. They exclude the bootstrapping key set, which
+both sides must hold and which KeyMemRT stages as one bundle around the weight
+refresh. Process RSS appears alongside as a cross-check, but it is the weaker
+number because the allocator does not return freed pages. The key-material
+figures are exact.
 
 ---
 
@@ -451,9 +457,9 @@ sudo ldconfig
 **`DropLastElement: Removing last element of DCRTPoly renders it invalid`**
 The modulus chain ran out of levels. The step needs more depth than the context
 has. `reboot_emit --stats` prints `required depth`; pass `--levels` (or
-`--depth` to the benchmark) at least that high. Note that without bootstrapping
-the levels only ever go down, so a run of more than one step needs roughly twice
-the single-step depth.
+`--depth` to the benchmark) at least that high. Without bootstrapping the levels
+only ever go down, so a run of more than one step needs roughly twice the
+single-step depth.
 
 **`reference to 'Format' is ambiguous`** in your own host code
 OpenFHE declares a global `enum Format` in `core/utils/inttypes.h`. This project
@@ -472,9 +478,9 @@ submodule update`, which cannot reach the network inside the build sandbox, so
 the submodules have to arrive with the source.
 
 **Bazel build of the compiler is enormous or fails on network access**
-Expected — it builds MLIR and LLVM. It cannot be done inside a Nix sandbox;
-build it in a normal shell (`nix develop` is fine, the sandbox only applies to
-`nix build`).
+Expected: it builds MLIR and LLVM. A Nix sandbox cannot run it, so build it in
+an ordinary shell. `nix develop` works, because the sandbox applies only to
+`nix build`.
 
 **The generated function's signature does not match the runner's declarations**
 `drivers/reboot_runner.cc` declares the three entry points near the top against
@@ -487,25 +493,25 @@ differently, that block is the single place to adjust.
 
 ### 8.1 Autograd, not a hand-written backward pass
 
-`tensor_graph.h` is a small tensor-level IR — vectors and weight matrices, not
-slot vectors — so `autograd.cc` is ordinary reverse-mode differentiation. The
-model builder assembles only the *forward* network and one loss seed per local
-classifier; the backward pass is derived.
+`tensor_graph.h` is a small tensor-level IR holding vectors and weight matrices
+instead of slot vectors, which leaves `autograd.cc` as ordinary reverse-mode
+differentiation. The model builder assembles only the *forward* network and one
+loss seed per local classifier. Differentiation supplies the backward pass.
 
 ReBoot's published backward rules fall out of the standard vector-Jacobian
 products:
 
 | forward | VJP | what it lowers to |
 | --- | --- | --- |
-| `matmul(x, W)` | `∂x = matmul_transposed(g, W)` | the same weight ciphertext, summed the *other* way — no transpose, no repacking |
-| `matmul(x, W)` | `∂W = outer(x, g)` | a bare elementwise product: one operand is Repeated and the other Expanded, so the product already *is* the outer product in the weight layout — zero rotations |
+| `matmul(x, W)` | `∂x = matmul_transposed(g, W)` | the same weight ciphertext, summed the *other* way: no transpose, no repacking |
+| `matmul(x, W)` | `∂W = outer(x, g)` | a bare elementwise product: one operand is Repeated and the other Expanded, so the product already *is* the outer product in the weight layout, at zero rotations |
 | `poly_relu(x)` | `g · (2x + 1)` | one level, as in the paper |
 
 Each block ends in a `stop_gradient`, so its error signal never leaves the
-block. `test_autograd` checks this against central finite differences, including
-that a block's gradient equals the gradient of *its own* loss (4e-12) and
-differs from that of the full objective (2.5e-2) — which is what keeps the depth
-of a step independent of network depth.
+block. `test_autograd` checks this against central finite differences: a block's
+gradient matches the gradient of *its own* loss to 4e-12 and departs from the
+gradient of the full objective by 2.5e-2. That confinement keeps the depth of a
+step independent of network depth.
 
 The optimiser comes from the same graph. Because the velocities are function
 arguments, passing zeros on the first step reproduces ReBoot's separate
@@ -532,9 +538,9 @@ w_out      [32x10]    column-packed
 ```
 
 Each block's classifier takes the opposite packing of its forward layer, so
-nothing ever repacks. The depth asymmetry is there too: `matmul_re` costs one
-level, `matmul_ce` two — the extra one being the mask in the column summation,
-matching the paper's τ=2 against τ=3.
+nothing ever repacks. The depth asymmetry survives as well: `matmul_re` costs one
+level and `matmul_ce` costs two, the extra level being the mask in the column
+summation. That matches the paper's τ=2 against τ=3.
 
 ### 8.3 Packing lowered to named rotations
 
@@ -546,8 +552,8 @@ sum_cols  for k = 1, 2, ... < cols:           x += rot(x, k)
 ```
 
 `test_lowering` runs the tensor graph and the slot graph on the same inputs and
-compares every result of the step — updated weights, velocities and predictions
-— for three architectures; agreement is ~1e-17.
+compares every result of the step (updated weights, velocities and predictions)
+across three architectures. Agreement is ~1e-17.
 
 ### 8.4 The emitted module
 
@@ -573,10 +579,10 @@ module attributes {ckks.schemeParam = #ckks.scheme_param<logN = 12, Q = [...], P
 ```
 
 NTT-friendly primes are generated for the requested `logN` and depth. Every
-ciphertext is emitted at the top of the chain and each product is relinearised
-straight back to the canonical basis, leaving rescaling to OpenFHE's
-`FLEXIBLEAUTO` at run time; the depth the graph needs is computed from the graph
-and sizes the modulus chain.
+ciphertext is emitted at the top of the chain, and each product is relinearised
+straight back to the canonical basis, which leaves rescaling to OpenFHE's
+`FLEXIBLEAUTO` at run time. The depth the graph needs is computed from the graph
+itself and sizes the modulus chain.
 
 ---
 
@@ -589,17 +595,17 @@ ReBoot is a Python library over a pybind11 module (`reboot_cpp`) pinned to
    `CryptoContext<DCRTPoly>` and friends by value, so it only works if
    `openfhe-python` registered those exact types. KeyMemRT builds against the
    fork; both cannot be right at once.
-2. **The fork's feature is unreachable from Python.** `Get/SetDynamicQSize` is
-   what makes compressed rotation keys usable, and upstream 1.2.1 — which
-   openfhe-python wraps — does not have it.
+2. **The fork's feature is unreachable from Python.** Compressed rotation keys
+   depend on `Get/SetDynamicQSize`, and upstream 1.2.1, the version
+   openfhe-python wraps, does not define it.
 3. **ReBoot's rotations are invisible.** Its matrix products call
    `EvalSumRows`/`EvalSumCols`, whose rotations happen inside OpenFHE against
    the **EvalSum** key map. KeyMemRT pages keys out of the **automorphism** key
    map one index at a time; it has no hook there, and the indices are never
    named by the program.
 
-The fix for (3) is also the fix for (1) and (2): name every rotation in the IR
-and let the compiler place the key management.
+One change addresses all three: name every rotation in the IR and let the
+compiler place the key management.
 
 ---
 
@@ -628,6 +634,8 @@ tools/
 scripts/
   run_keymemrt.sh        emit -> keymemrt-opt -> keymemrt-translate -> build -> run
   measure_key_memory.sh  build and run the memory benchmark
+docs/
+  optimizations.md       every optimisation, its cost, and how it was measured
 tests/
   test_autograd.cc gradients vs finite differences; gradient locality
   test_lowering.cc packed lowering vs tensor semantics
@@ -647,9 +655,9 @@ plain snake case inside their scoped enum (`pack_format_t::repeated`), class
 members carry a trailing underscore, and indentation is tabs; `.clang-format`
 is in this directory.
 
-The only CamelCase left is other people's API — OpenFHE's `CiphertextT`,
-KeyMemRT's `deserializeKey` — kept verbatim so the generated code and the
-runtime headers still read as theirs.
+The remaining CamelCase belongs to other people's API: OpenFHE's `CiphertextT`,
+KeyMemRT's `deserializeKey`. Those keep their original spelling so the generated
+code and the runtime headers still read as theirs.
 
 Options are registered once per binary in a table that binds each flag to the
 variable it sets and carries its help text, so `--help` and the parser come from
