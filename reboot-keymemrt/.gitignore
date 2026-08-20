@@ -1,6 +1,11 @@
 build/
 keys/
 results/
+result
+result-*
+.direnv/
 *.plan
 *.bin
 *.log
+*.mlir
+*.manifest
