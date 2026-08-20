@@ -1,0 +1,6 @@
+build/
+keys/
+results/
+*.plan
+*.bin
+*.log
