@@ -60,7 +60,8 @@ void TensorGraph::set_name(ValueId id, const std::string &name) {
 	values_.at(id).name = name;
 }
 
-ValueId TensorGraph::input(const std::string &name, int length, PackFormat format) {
+ValueId TensorGraph::input(const std::string &name, int length,
+						   PackFormat format) {
 	TensorValue v;
 	v.op = TensorOp::kInput;
 	v.shape = Shape{1, length};

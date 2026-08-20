@@ -31,6 +31,8 @@
 #include "openfhe.h"
 #include "reboot/data.h"
 #include "reboot/layout.h"
+#include "reboot/manifest.h"
+#include "reboot/options.h"
 #include "reboot/reboot_model.h"
 #include "reboot/slot_graph.h"
 
@@ -61,38 +63,6 @@ std::vector<CiphertextT> reboot_train_step(CryptoContextT cc,
 
 namespace {
 
-std::vector<int> parse_int_list(const std::string &text) {
-	std::vector<int> out;
-	size_t pos = 0;
-	while (pos < text.size()) {
-		size_t comma = text.find(',', pos);
-		if (comma == std::string::npos) comma = text.size();
-		out.push_back(std::stoi(text.substr(pos, comma - pos)));
-		pos = comma + 1;
-	}
-	return out;
-}
-
-void print_help() {
-	fmt::print(
-		"reboot_runner - run the generated ReBoot training step under "
-		"KeyMemRT\n\n"
-		"Model (must match the flags given to reboot_emit):\n"
-		"  --hidden a,b        hidden layer widths\n"
-		"  --input-dim n       input dimension\n"
-		"  --classes n         number of classes\n"
-		"  --batch-size n      samples per step\n"
-		"  --lr f / --momentum f / --weight-decay f\n"
-		"  --log-n n           log2 of the ring dimension\n\n"
-		"Run:\n"
-		"  --samples n         synthetic samples (64)\n"
-		"  --csv path          CSV dataset instead\n"
-		"  --steps n           training steps to run (4)\n"
-		"  --result-dir dir    resource monitor output (./results)\n\n"
-		"KeyMemRT flags (--key-mode, --input-dir, --prefetch-sat, --log-level)\n"
-		"are parsed by the runtime itself.\n");
-}
-
 int argmax(const std::vector<double> &v) {
 	int best = 0;
 	for (size_t i = 1; i < v.size(); ++i)
@@ -105,58 +75,46 @@ int argmax(const std::vector<double> &v) {
 int main(int argc, char **argv) {
 	keymem_rt.initFromArgs(argc, argv);
 
-	ModelConfig config;
-	config.hidden = {32, 16};
-	config.input_dim = 16;
-	config.num_classes = 4;
-	config.batch_size = 1;
+	std::string manifest_path, csv, result_dir = "./results";
+	int samples = 64, steps = 4;
 
-	int samples = 64, steps = 4, log_n = 13;
-	std::string csv, result_dir = "./results";
+	OptionParser parser(
+		"reboot_runner",
+		"run the generated ReBoot training step under KeyMemRT");
+	parser.section("Module").add(
+		"--manifest", manifest_path,
+		"manifest reboot_emit wrote beside the .mlir (required)");
+	parser.section("Run")
+		.add("--samples", samples, "synthetic samples")
+		.add("--csv", csv, "CSV dataset instead (last column = label)")
+		.add("--steps", steps, "training steps to run")
+		.add("--result-dir", result_dir, "resource monitor output directory");
+	// KeyMemRT reads --key-mode, --input-dir, --prefetch-sat and friends
+	// straight from argv; they are declared here so they are skipped rather
+	// than reported as unknown.
+	ignore_keymemrt_options(parser);
 
-	for (int i = 1; i < argc; ++i) {
-		const std::string arg = argv[i];
-		auto next = [&]() { return std::string(argv[++i]); };
-		if (arg == "--hidden")
-			config.hidden = parse_int_list(next());
-		else if (arg == "--input-dim")
-			config.input_dim = std::stoi(next());
-		else if (arg == "--classes")
-			config.num_classes = std::stoi(next());
-		else if (arg == "--batch-size")
-			config.batch_size = std::stoi(next());
-		else if (arg == "--lr")
-			config.learning_rate = std::stod(next());
-		else if (arg == "--momentum")
-			config.momentum = std::stod(next());
-		else if (arg == "--weight-decay")
-			config.weight_decay = std::stod(next());
-		else if (arg == "--log-n")
-			log_n = std::stoi(next());
-		else if (arg == "--samples")
-			samples = std::stoi(next());
-		else if (arg == "--csv")
-			csv = next();
-		else if (arg == "--steps")
-			steps = std::stoi(next());
-		else if (arg == "--result-dir")
-			result_dir = next();
-		else if (arg == "--help" || arg == "-h") {
-			print_help();
-			return 0;
-		} else if (arg == "--key-mode" || arg == "--input-dir" ||
-				   arg == "--output-dir" || arg == "--prefetch-sat" ||
-				   arg == "--log-level" || arg == "--log-file" ||
-				   arg == "--output-base") {
-			++i;  // consumed by KeyMemRT
-		} else if (arg == "--verbose" || arg == "-v" ||
-				   arg == "--ser-single-file" || arg == "--log-console-off") {
-			// consumed by KeyMemRT
-		} else {
-			fmt::print(stderr, "unknown option {}\n", arg);
-			return 1;
-		}
+	Manifest manifest;
+	try {
+		if (!parser.parse(argc, argv)) return 0;
+		if (manifest_path.empty())
+			throw std::invalid_argument(
+				"--manifest is required: it is what pins this run to the "
+				"module that was generated, so the argument order cannot "
+				"silently disagree");
+		manifest = Manifest::load(manifest_path);
+	} catch (const std::exception &error) {
+		fmt::print(stderr, "error: {}\n", error.what());
+		return 1;
 	}
+
+	// The model comes from the manifest, never from flags: the generated
+	// function has a fixed argument order and a mistyped width here would
+	// build a different one.
+	ModelConfig config = manifest.config;
+	const int log_n = manifest.log_n;
+	const Layout layout = manifest.layout;
+	fmt::print("{}", manifest.describe());
 
 	// ---- schema: the same graph the emitted module was built from ----------
 	Dataset data = csv.empty() ? make_blobs(samples, config.input_dim,
@@ -164,15 +122,27 @@ int main(int argc, char **argv) {
 							   : load_csv(csv);
 	if (!csv.empty()) {
 		normalise(data);
-		config.input_dim = data.dim;
-		config.num_classes = data.num_classes;
+		if (data.dim != config.input_dim ||
+			data.num_classes != config.num_classes) {
+			fmt::print(stderr,
+					   "error: {} has dim {} and {} classes, but the module "
+					   "was generated for dim {} and {} classes\n",
+					   csv, data.dim, data.num_classes, config.input_dim,
+					   config.num_classes);
+			return 1;
+		}
 	}
 
 	const int num_slots = 1 << (log_n - 1);
-	const Layout layout = recommend_layout(config, num_slots);
 	const TrainStep step = build_train_step(config, layout);
 	const LoweredStep lowered = lower_to_slots(step);
 	const TensorGraph &g = step.graph;
+	try {
+		manifest.verify(lowered);
+	} catch (const std::exception &error) {
+		fmt::print(stderr, "error: {}\n", error.what());
+		return 1;
+	}
 	fmt::print("{}", step.describe());
 
 	// ---- context and keys --------------------------------------------------
@@ -209,28 +179,30 @@ int main(int argc, char **argv) {
 	std::map<std::string, Ciphertext<DCRTPoly>> state;
 	for (const ParamBinding &p : step.params) {
 		const TensorValue &meta = g.value(p.weight);
-		const double bound = std::sqrt(1.0 / (meta.shape.rows + meta.shape.cols));
+		const double bound =
+			std::sqrt(1.0 / (meta.shape.rows + meta.shape.cols));
 		std::uniform_real_distribution<double> dist(-bound, bound);
-		std::vector<double> weights(
-			static_cast<size_t>(meta.shape.rows) * meta.shape.cols);
+		std::vector<double> weights(static_cast<size_t>(meta.shape.rows) *
+									meta.shape.cols);
 		for (double &w : weights) w = dist(rng);
 		state[p.name] = encrypt_slots(pack_weights(weights, meta.shape.rows,
 												   meta.shape.cols,
 												   meta.row_packing, layout));
 		// Zero velocities on the first step reproduce ReBoot's separate
 		// "initialise the velocity" branch, so only one update rule is emitted.
-		state[fmt::format("v_{}", p.name)] =
-			encrypt_slots(std::vector<double>(static_cast<size_t>(num_slots), 0.0));
+		state[fmt::format("v_{}", p.name)] = encrypt_slots(
+			std::vector<double>(static_cast<size_t>(num_slots), 0.0));
 	}
 
 	monitor = std::make_unique<ResourceMonitor>(true);
-	const std::string trace = fmt::format("{}/reboot_{}_{}.csv", result_dir,
-										  getModeString(keymem_rt.getOperationMode()),
-										  layout.str());
+	const std::string trace =
+		fmt::format("{}/reboot_{}_{}.csv", result_dir,
+					getModeString(keymem_rt.getOperationMode()), layout.str());
 	monitor->start(trace);
 
 	// ---- training loop -----------------------------------------------------
-	const PackFormat prediction_format = g.value(step.predictions.front()).format;
+	const PackFormat prediction_format =
+		g.value(step.predictions.front()).format;
 	const size_t batch = static_cast<size_t>(config.batch_size);
 
 	for (int s = 0; s < steps; ++s) {
@@ -249,8 +221,8 @@ int main(int argc, char **argv) {
 			}
 			// Inputs and labels: encrypted fresh for this batch.
 			const TensorValue &meta = g.value(step.arguments[i]);
-			const size_t sample =
-				static_cast<size_t>(std::stoi(name.substr(name.rfind('_') + 1)));
+			const size_t sample = static_cast<size_t>(
+				std::stoi(name.substr(name.rfind('_') + 1)));
 			const std::vector<double> plain =
 				name.rfind("x_", 0) == 0
 					? data.features[start + sample]
@@ -275,9 +247,9 @@ int main(int argc, char **argv) {
 		int correct = 0;
 		const size_t prediction_base = 2 * step.params.size();
 		for (size_t b = 0; b < batch; ++b) {
-			const std::vector<double> scores = unpack_vector(
-				decrypt_slots(results[prediction_base + b]), prediction_format,
-				layout, config.num_classes);
+			const std::vector<double> scores =
+				unpack_vector(decrypt_slots(results[prediction_base + b]),
+							  prediction_format, layout, config.num_classes);
 			const int label = data.y[start + b];
 			for (int c = 0; c < config.num_classes; ++c) {
 				const double diff =

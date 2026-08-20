@@ -16,6 +16,8 @@ find_package(fmt 12 REQUIRED)
 # against OpenFHE - the generated MLIR is compiled by KeyMemRT-Compiler, which
 # emits the OpenFHE calls and the KeyMemRT key management.
 add_library(reboot
+  lib/options.cc
+  lib/manifest.cc
   lib/ckks_params.cc
   lib/tensor_graph.cc
   lib/autograd.cc
@@ -34,7 +36,7 @@ add_executable(reboot_eval drivers/reboot_eval.cc)
 target_link_libraries(reboot_eval PRIVATE reboot)
 
 enable_testing()
-foreach(test test_autograd test_lowering test_emitter)
+foreach(test test_autograd test_lowering test_emitter test_options)
   add_executable(${test} tests/${test}.cc)
   target_link_libraries(${test} PRIVATE reboot)
   add_test(NAME ${test} COMMAND ${test})

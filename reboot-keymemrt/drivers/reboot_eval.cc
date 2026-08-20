@@ -20,42 +20,13 @@
 #include "reboot/data.h"
 #include "reboot/interpreter.h"
 #include "reboot/layout.h"
+#include "reboot/options.h"
 #include "reboot/reboot_model.h"
 #include "reboot/slot_graph.h"
 
 using namespace reboot;
 
 namespace {
-
-std::vector<int> parse_int_list(const std::string &text) {
-	std::vector<int> out;
-	size_t pos = 0;
-	while (pos < text.size()) {
-		size_t comma = text.find(',', pos);
-		if (comma == std::string::npos) comma = text.size();
-		out.push_back(std::stoi(text.substr(pos, comma - pos)));
-		pos = comma + 1;
-	}
-	return out;
-}
-
-void print_help() {
-	fmt::print(
-		"reboot_eval - run the emitted ReBoot training step on plaintext "
-		"slots\n\n"
-		"  --hidden a,b        hidden layer widths (default 32,16)\n"
-		"  --classes n         number of classes (4)\n"
-		"  --dim n             input dimension (16)\n"
-		"  --samples n         synthetic samples (512)\n"
-		"  --csv path          CSV dataset instead (last column = label)\n"
-		"  --batch-size n      samples per step (4)\n"
-		"  --epochs n          epochs (4)\n"
-		"  --lr f              learning rate (0.01)\n"
-		"  --momentum f        Nesterov momentum (0.9)\n"
-		"  --weight-decay f    weight decay (0.0)\n"
-		"  --log-n n           log2 of the ring dimension (13)\n"
-		"  --seed n            RNG seed (1)\n");
-}
 
 int argmax(const DenseValue &v) {
 	int best = 0;
@@ -75,45 +46,24 @@ int main(int argc, char **argv) {
 	config.learning_rate = 0.01;
 
 	int samples = 512, epochs = 4, log_n = 13;
-	unsigned seed = 1;
+	unsigned seed_value = 1;
+	int seed = 1;
 	std::string csv;
 
+	OptionParser parser(
+		"reboot_eval",
+		"run the emitted ReBoot training step on plaintext slots");
+	add_model_options(parser, config, log_n);
+	parser.section("Data")
+		.add("--samples", samples, "synthetic samples")
+		.add("--csv", csv, "CSV dataset instead (last column = label)");
+	parser.section("Run")
+		.add("--epochs", epochs, "epochs")
+		.add("--seed", seed, "RNG seed");
+
 	try {
-		for (int i = 1; i < argc; ++i) {
-			const std::string arg = argv[i];
-			auto next = [&]() { return std::string(argv[++i]); };
-			if (arg == "--hidden")
-				config.hidden = parse_int_list(next());
-			else if (arg == "--classes")
-				config.num_classes = std::stoi(next());
-			else if (arg == "--dim")
-				config.input_dim = std::stoi(next());
-			else if (arg == "--samples")
-				samples = std::stoi(next());
-			else if (arg == "--csv")
-				csv = next();
-			else if (arg == "--batch-size")
-				config.batch_size = std::stoi(next());
-			else if (arg == "--epochs")
-				epochs = std::stoi(next());
-			else if (arg == "--lr")
-				config.learning_rate = std::stod(next());
-			else if (arg == "--momentum")
-				config.momentum = std::stod(next());
-			else if (arg == "--weight-decay")
-				config.weight_decay = std::stod(next());
-			else if (arg == "--log-n")
-				log_n = std::stoi(next());
-			else if (arg == "--seed")
-				seed = static_cast<unsigned>(std::stoi(next()));
-			else if (arg == "--help" || arg == "-h") {
-				print_help();
-				return 0;
-			} else {
-				fmt::print(stderr, "unknown option {}\n", arg);
-				return 1;
-			}
-		}
+		if (!parser.parse(argc, argv)) return 0;
+		seed_value = static_cast<unsigned>(seed);
 
 		Dataset data = csv.empty() ? make_blobs(samples, config.input_dim,
 												config.num_classes, /*seed=*/5)
@@ -141,7 +91,7 @@ int main(int argc, char **argv) {
 			argument_index[lowered.argument_names[i]] = i;
 
 		// Encrypted state: weights initialised Xavier-uniform, velocities zero.
-		std::mt19937 rng(seed);
+		std::mt19937 rng(seed_value);
 		std::map<std::string, DenseValue> state;
 		for (const ParamBinding &p : step.params) {
 			const TensorValue &meta = g.value(p.weight);
@@ -160,7 +110,7 @@ int main(int argc, char **argv) {
 
 		const PackFormat prediction_format =
 			g.value(step.predictions.front()).format;
-		std::mt19937 shuffle_rng(seed);
+		std::mt19937 shuffle_rng(seed_value);
 
 		for (int epoch = 0; epoch < epochs; ++epoch) {
 			shuffle(data, shuffle_rng);

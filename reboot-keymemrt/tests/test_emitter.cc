@@ -130,13 +130,15 @@ int main() {
 	check(mlir.find(fmt::format("-> tensor<{}x!ct>", lowered.results.size())) !=
 			  std::string::npos,
 		  "results leave as one tensor");
-	check(count_occurrences(mlir, "tensor.extract ") == lowered.arguments.size(),
-		  "every argument is extracted once");
+	check(
+		count_occurrences(mlir, "tensor.extract ") == lowered.arguments.size(),
+		"every argument is extracted once");
 	check(count_occurrences(mlir, "tensor.insert ") == lowered.results.size(),
 		  "every result is inserted once");
 	check(count_occurrences(mlir, "tensor.empty()") == 1,
 		  "one result tensor is allocated");
-	check(count_occurrences(mlir, "return ") == 1, "a single value is returned");
+	check(count_occurrences(mlir, "return ") == 1,
+		  "a single value is returned");
 
 	fmt::print("the ABI names travel with the module\n");
 	for (const std::string &name :

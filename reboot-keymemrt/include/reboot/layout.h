@@ -72,8 +72,8 @@ inline PackFormat output_format(bool row_packing) {
 }
 
 // Pack a plain vector into `layout.slots()` slots using `f`.
-inline std::vector<double> pack_vector(const std::vector<double> &v, PackFormat f,
-									   const Layout &layout) {
+inline std::vector<double> pack_vector(const std::vector<double> &v,
+									   PackFormat f, const Layout &layout) {
 	std::vector<double> out(static_cast<size_t>(layout.slots()), 0.0);
 	if (f == PackFormat::kRepeated) {
 		if (static_cast<int>(v.size()) > layout.cols)

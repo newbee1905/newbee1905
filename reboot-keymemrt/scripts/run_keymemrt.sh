@@ -13,9 +13,9 @@
 #                      (bazel build //tools:keymemrt-opt //tools:keymemrt-translate)
 #   KEYMEMRT           a KeyMemRT checkout (for include/KeyMemRT.hpp and friends)
 #
-# The model flags are passed to reboot_emit and reboot_runner alike: the runner
-# rebuilds the same graph to learn the argument order and the packing, so the
-# two must agree.
+# MODEL_FLAGS describes the network and goes to reboot_emit only.  The emitter
+# writes a manifest beside the .mlir and the runner reads that, so the argument
+# order of the generated function cannot disagree with what the runner sends.
 set -euo pipefail
 
 : "${KEYMEMRT_COMPILER:?set KEYMEMRT_COMPILER to a KeyMemRT-Compiler checkout}"
@@ -72,5 +72,6 @@ g++ -std=c++17 -O2 -fopenmp \
 
 echo "==> 5/5 running (key mode: $KEY_MODE)"
 SERIALIZED_DATA_DIR="$KEYS" "$OUT/reboot_runner" \
+  --manifest "$OUT/reboot_train_step.mlir.manifest" \
   --key-mode "$KEY_MODE" --input-dir "$KEYS" --result-dir "$RESULTS" \
-  --log-level error --steps "$STEPS" $MODEL_FLAGS
+  --log-level error --steps "$STEPS"

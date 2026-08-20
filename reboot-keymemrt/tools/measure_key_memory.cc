@@ -27,6 +27,7 @@
 
 #include "KeyMemRT.hpp"
 #include "openfhe.h"
+#include "reboot/options.h"
 #include "reboot/reboot_model.h"
 #include "reboot/slot_graph.h"
 
@@ -87,8 +88,8 @@ struct KeyCensus {
 	size_t count = 0;
 };
 
-KeyCensus census(const std::vector<const std::map<usint, EvalKey<DCRTPoly>> *>
-					 &maps) {
+KeyCensus census(
+	const std::vector<const std::map<usint, EvalKey<DCRTPoly>> *> &maps) {
 	std::set<const void *> seen;
 	KeyCensus result;
 	for (const auto *keys : maps)
@@ -100,18 +101,8 @@ KeyCensus census(const std::vector<const std::map<usint, EvalKey<DCRTPoly>> *>
 	return result;
 }
 
-double mb(size_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); }
-
-std::vector<int> parse_int_list(const std::string &text) {
-	std::vector<int> out;
-	size_t pos = 0;
-	while (pos < text.size()) {
-		size_t comma = text.find(',', pos);
-		if (comma == std::string::npos) comma = text.size();
-		out.push_back(std::stoi(text.substr(pos, comma - pos)));
-		pos = comma + 1;
-	}
-	return out;
+double mb(size_t bytes) {
+	return static_cast<double>(bytes) / (1024.0 * 1024.0);
 }
 
 }  // namespace
@@ -126,29 +117,22 @@ int main(int argc, char **argv) {
 	int log_n = 14, depth_override = 0, scaling_mod = 50;
 	std::string key_dir = "./keys_measure";
 
-	for (int i = 1; i < argc; ++i) {
-		const std::string arg = argv[i];
-		auto next = [&]() { return std::string(argv[++i]); };
-		if (arg == "--hidden")
-			config.hidden = parse_int_list(next());
-		else if (arg == "--input-dim")
-			config.input_dim = std::stoi(next());
-		else if (arg == "--classes")
-			config.num_classes = std::stoi(next());
-		else if (arg == "--batch-size")
-			config.batch_size = std::stoi(next());
-		else if (arg == "--log-n")
-			log_n = std::stoi(next());
-		else if (arg == "--depth")
-			depth_override = std::stoi(next());
-		else if (arg == "--scaling-mod")
-			scaling_mod = std::stoi(next());
-		else if (arg == "--key-dir")
-			key_dir = next();
-		else {
-			fmt::print(stderr, "unknown option {}\n", arg);
-			return 1;
-		}
+	OptionParser parser(
+		"measure_key_memory",
+		"compare the rotation-key working set of ReBoot and KeyMemRT");
+	add_model_options(parser, config, log_n);
+	parser.section("CKKS")
+		.add("--depth", depth_override,
+			 "multiplicative depth (default: from the graph)")
+		.add("--scaling-mod", scaling_mod, "scaling modulus size in bits");
+	parser.section("Output").add("--key-dir", key_dir,
+								 "where the serialised keys go");
+
+	try {
+		if (!parser.parse(argc, argv)) return 0;
+	} catch (const std::exception &error) {
+		fmt::print(stderr, "error: {}\n", error.what());
+		return 1;
 	}
 
 	// ---- the step, and the rotation indices it names -----------------------

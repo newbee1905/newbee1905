@@ -129,12 +129,12 @@ class Emitter {
 		// The argument order is part of the ABI, so it travels with the module.
 		std::string names;
 		for (size_t i = 0; i < num_args; ++i)
-			names += fmt::format("{}\"{}\"", i ? ", " : "",
-								 step_.argument_names[i]);
+			names +=
+				fmt::format("{}\"{}\"", i ? ", " : "", step_.argument_names[i]);
 		std::string result_names;
 		for (size_t i = 0; i < num_results; ++i)
-			result_names += fmt::format("{}\"{}\"", i ? ", " : "",
-										step_.result_names[i]);
+			result_names +=
+				fmt::format("{}\"{}\"", i ? ", " : "", step_.result_names[i]);
 
 		line(fmt::format(
 			"  func.func @{}(%args: {} {{reboot.argument_names = [{}]}}) -> {} "
@@ -149,9 +149,9 @@ class Emitter {
 		for (size_t i = 0; i < num_args; ++i) {
 			const SlotId id = step_.arguments[i];
 			names_[id] = fmt::format("%arg{}", i);
-			line(fmt::format("    {} = tensor.extract %args[%idx{}] : {}  // {}",
-							 names_[id], i, arg_type,
-							 step_.argument_names[i]));
+			line(
+				fmt::format("    {} = tensor.extract %args[%idx{}] : {}  // {}",
+							names_[id], i, arg_type, step_.argument_names[i]));
 		}
 
 		emit_constants();

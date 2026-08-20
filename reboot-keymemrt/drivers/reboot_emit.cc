@@ -11,51 +11,13 @@
 #include <vector>
 
 #include "reboot/ckks_params.h"
+#include "reboot/manifest.h"
 #include "reboot/mlir_emitter.h"
+#include "reboot/options.h"
 #include "reboot/reboot_model.h"
 #include "reboot/slot_graph.h"
 
 using namespace reboot;
-
-namespace {
-
-std::vector<int> parse_int_list(const std::string &text) {
-	std::vector<int> out;
-	size_t pos = 0;
-	while (pos < text.size()) {
-		size_t comma = text.find(',', pos);
-		if (comma == std::string::npos) comma = text.size();
-		out.push_back(std::stoi(text.substr(pos, comma - pos)));
-		pos = comma + 1;
-	}
-	return out;
-}
-
-void print_help() {
-	fmt::print(
-		"reboot_emit - emit a ReBoot training step as ckks-dialect MLIR\n\n"
-		"Model:\n"
-		"  --hidden a,b        hidden layer widths (default 32,16)\n"
-		"  --input-dim n       input dimension (16)\n"
-		"  --classes n         number of classes (4)\n"
-		"  --batch-size n      samples per step (1)\n"
-		"  --lr f              learning rate (0.005)\n"
-		"  --momentum f        Nesterov momentum (0.9)\n"
-		"  --weight-decay f    weight decay (0.0)\n"
-		"  --no-bootstrap      leave the weights unrefreshed (inspection "
-		"only)\n"
-		"\nCKKS:\n"
-		"  --log-n n           log2 of the ring dimension (13)\n"
-		"  --log-scale n       log2 of the scaling factor (26)\n"
-		"  --levels n          modulus chain length (default: from the graph)\n"
-		"\nOutput:\n"
-		"  --function name     emitted function name (reboot_train_step)\n"
-		"  -o path             write MLIR here instead of stdout\n"
-		"  --dump-graph        print the tensor graph before lowering\n"
-		"  --stats             print graph statistics to stderr\n");
-}
-
-}  // namespace
 
 int main(int argc, char **argv) {
 	ModelConfig config;
@@ -65,54 +27,31 @@ int main(int argc, char **argv) {
 	config.batch_size = 1;
 
 	EmitOptions options;
-	options.params.log_n = 13;
-	options.params.log_scale = 26;
+	int log_n = 13;
 	int levels_override = 0;
-	std::string output_path;
+	std::string output_path, manifest_path;
 	bool dump_graph = false, stats = false;
 
+	OptionParser parser("reboot_emit",
+						"emit a ReBoot training step as ckks-dialect MLIR");
+	add_model_options(parser, config, log_n);
+	parser.section("CKKS")
+		.add("--log-scale", options.params.log_scale,
+			 "log2 of the scaling factor")
+		.add("--levels", levels_override,
+			 "modulus chain length (default: from the graph)");
+	parser.section("Output")
+		.add("--function", options.function_name, "emitted function name")
+		.add("-o", output_path, "write MLIR here instead of stdout")
+		.add("--manifest", manifest_path,
+			 "write the run manifest here (default: <output>.manifest)")
+		.add_switch("--dump-graph", dump_graph, true,
+					"print the tensor graph before lowering")
+		.add_switch("--stats", stats, true, "print graph statistics to stderr");
+
 	try {
-		for (int i = 1; i < argc; ++i) {
-			const std::string arg = argv[i];
-			auto next = [&]() { return std::string(argv[++i]); };
-			if (arg == "--hidden")
-				config.hidden = parse_int_list(next());
-			else if (arg == "--input-dim")
-				config.input_dim = std::stoi(next());
-			else if (arg == "--classes")
-				config.num_classes = std::stoi(next());
-			else if (arg == "--batch-size")
-				config.batch_size = std::stoi(next());
-			else if (arg == "--lr")
-				config.learning_rate = std::stod(next());
-			else if (arg == "--momentum")
-				config.momentum = std::stod(next());
-			else if (arg == "--weight-decay")
-				config.weight_decay = std::stod(next());
-			else if (arg == "--no-bootstrap")
-				config.bootstrap = false;
-			else if (arg == "--log-n")
-				options.params.log_n = std::stoi(next());
-			else if (arg == "--log-scale")
-				options.params.log_scale = std::stoi(next());
-			else if (arg == "--levels")
-				levels_override = std::stoi(next());
-			else if (arg == "--function")
-				options.function_name = next();
-			else if (arg == "-o")
-				output_path = next();
-			else if (arg == "--dump-graph")
-				dump_graph = true;
-			else if (arg == "--stats")
-				stats = true;
-			else if (arg == "--help" || arg == "-h") {
-				print_help();
-				return 0;
-			} else {
-				fmt::print(stderr, "unknown option {}\n", arg);
-				return 1;
-			}
-		}
+		if (!parser.parse(argc, argv)) return 0;
+		options.params.log_n = log_n;
 
 		const Layout layout =
 			recommend_layout(config, options.params.num_slots());
@@ -145,6 +84,16 @@ int main(int argc, char **argv) {
 			file << mlir;
 			fmt::print(stderr, "wrote {} ({} bytes)\n", output_path,
 					   mlir.size());
+		}
+
+		// The manifest is what lets the runner check it is calling the module
+		// it thinks it is, instead of trusting that the flags matched.
+		if (manifest_path.empty() && !output_path.empty())
+			manifest_path = output_path + ".manifest";
+		if (!manifest_path.empty()) {
+			make_manifest(options.function_name, config, log_n, layout, lowered)
+				.save(manifest_path);
+			fmt::print(stderr, "wrote {}\n", manifest_path);
 		}
 	} catch (const std::exception &error) {
 		fmt::print(stderr, "error: {}\n", error.what());

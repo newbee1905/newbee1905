@@ -156,6 +156,8 @@ computed from the graph and sizes the modulus chain.
 
 ```
 include/reboot/
+  options.h        declarative command line, shared by every binary
+  manifest.h       the emit -> run contract: model, layout and ABI order
   layout.h         slot geometry: Repeated / Expanded packing, weight packing
   tensor_graph.h   tensor-level IR with shapes and packings
   autograd.h       reverse-mode differentiation
@@ -170,12 +172,16 @@ drivers/
   reboot_emit.cc   build, differentiate, lower, emit
   reboot_eval.cc   run the emitted step on plaintext slots
   reboot_runner.cc host driver for the generated OpenFHE code
+tools/
+  measure_key_memory.cc  rotation-key working set, ReBoot vs KeyMemRT
 scripts/
-  run_keymemrt.sh  emit -> keymemrt-opt -> keymemrt-translate -> build -> run
+  run_keymemrt.sh        emit -> keymemrt-opt -> keymemrt-translate -> build -> run
+  measure_key_memory.sh  build and run the memory benchmark
 tests/
   test_autograd.cc gradients vs finite differences; gradient locality
   test_lowering.cc packed lowering vs tensor semantics
   test_emitter.cc  op counts, rotation attributes, signature
+  test_options.cc  command-line parsing and the manifest guard
 ```
 
 ## 4. Building and running
@@ -242,8 +248,14 @@ The five steps it runs, if you would rather do them by hand:
    in the right packing, and loops — feeding each step's returned state back in
    as the next step's arguments. It links against this frontend library and
    rebuilds the same graph, so the argument order and the packing come from one
-   place rather than being duplicated by hand. Give it the *same* model flags as
-   `reboot_emit`.
+   place rather than being duplicated by hand.
+
+   It takes `--manifest`, not model flags. `reboot_emit` writes a manifest
+   beside the `.mlir` recording the model, the layout and the argument and
+   result order; the runner loads it, rebuilds the graph, and refuses to run if
+   the two disagree. Passing "the same flags" to both is not a contract — one
+   mistyped width would build a different argument order and the run would be
+   wrong rather than broken.
 
 5. **Run** —
 
@@ -343,6 +355,14 @@ and the structural tests check the emitter against them, but a `keymemrt-opt`
 round trip is the obvious next step.
 
 ## 7. Style
+
+Options are registered once per binary in a table that binds each flag to the
+variable it sets and carries its help text, so `--help` and the parser come from
+the same place; `--name value` and `--name=value` both work, and a missing value,
+a malformed number or an unknown flag is reported against the flag that caused
+it. `add_model_options` registers the network flags for every binary that needs
+them, and `ignore_keymemrt_options` declares the ones KeyMemRT reads from argv
+itself so they are skipped rather than rejected.
 
 Google C++ style with tab indentation, snake_case functions, variables and file
 names, CamelCase types, and trailing-underscore members; `.clang-format` is in
