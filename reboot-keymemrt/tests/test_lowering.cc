@@ -34,30 +34,33 @@ void check(bool condition, const std::string &what) {
 	}
 }
 
-dense_value_t random_dense(size_t n, std::mt19937 &rng, double scale) {
+std::vector<double> random_dense(size_t n, std::mt19937 &rng, double scale) {
 	std::uniform_real_distribution<double> dist(-scale, scale);
-	dense_value_t v(n);
+	std::vector<double> v(n);
 	for (double &x : v) x = dist(rng);
 	return v;
 }
 
 // Pack a tensor value the way the emitted program expects to receive it.
-dense_value_t pack(const tensor_value_t &meta, const dense_value_t &dense,
-				   const layout_t &layout) {
+std::vector<double> pack(const tensor_value_t &meta,
+						 const std::vector<double> &dense,
+						 const layout_t &layout) {
 	if (meta.shape.is_vector()) return pack_vector(dense, meta.format, layout);
 	return pack_weights(dense, meta.shape.rows, meta.shape.cols,
 						meta.row_packing, layout);
 }
 
-dense_value_t unpack(const tensor_value_t &meta, const dense_value_t &slots,
-					 const layout_t &layout) {
+std::vector<double> unpack(const tensor_value_t &meta,
+						   const std::vector<double> &slots,
+						   const layout_t &layout) {
 	if (meta.shape.is_vector())
 		return unpack_vector(slots, meta.format, layout, meta.shape.cols);
 	return unpack_weights(slots, meta.shape.rows, meta.shape.cols,
 						  meta.row_packing, layout);
 }
 
-double max_deviation(const dense_value_t &a, const dense_value_t &b) {
+double max_deviation(const std::vector<double> &a,
+					 const std::vector<double> &b) {
 	double worst = 0.0;
 	for (size_t i = 0; i < a.size(); ++i)
 		worst = std::max(worst, std::fabs(a[i] - b[i]));
@@ -85,21 +88,22 @@ void run_case(const std::string &title, const model_config_t &config,
 		const value_id_t id = step.arguments[i];
 		const tensor_value_t &meta = g.value(id);
 		const size_t n = static_cast<size_t>(meta.shape.rows) * meta.shape.cols;
-		dense_value_t dense = meta.name.rfind("v_", 0) == 0
-								  ? dense_value_t(n, 0.0)
-								  : random_dense(n, rng, 0.4);
+		std::vector<double> dense = meta.name.rfind("v_", 0) == 0
+										? std::vector<double>(n, 0.0)
+										: random_dense(n, rng, 0.4);
 		slot_inputs[lowered.arguments[i]] = pack(meta, dense, layout);
 		dense_inputs[id] = std::move(dense);
 	}
 
-	const std::vector<dense_value_t> dense_values = evaluate(g, dense_inputs);
-	const std::vector<dense_value_t> slot_values =
+	const std::vector<std::vector<double>> dense_values =
+		evaluate(g, dense_inputs);
+	const std::vector<std::vector<double>> slot_values =
 		evaluate(lowered.graph, slot_inputs);
 
 	double worst = 0.0;
 	for (size_t i = 0; i < step.results.size(); ++i) {
 		const tensor_value_t &meta = g.value(step.results[i]);
-		const dense_value_t got =
+		const std::vector<double> got =
 			unpack(meta, slot_values[lowered.results[i]], layout);
 		worst =
 			std::max(worst, max_deviation(got, dense_values[step.results[i]]));

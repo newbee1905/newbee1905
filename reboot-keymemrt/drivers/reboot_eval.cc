@@ -28,7 +28,7 @@ using namespace reboot;
 
 namespace {
 
-int argmax(const dense_value_t &v) {
+int argmax(const std::vector<double> &v) {
 	int best = 0;
 	for (size_t i = 1; i < v.size(); ++i)
 		if (v[i] > v[static_cast<size_t>(best)]) best = static_cast<int>(i);
@@ -93,20 +93,20 @@ int main(int argc, char **argv) {
 
 		// Encrypted state: weights initialised Xavier-uniform, velocities zero.
 		std::mt19937 rng(seed_value);
-		std::map<std::string, dense_value_t> state;
+		std::map<std::string, std::vector<double>> state;
 		for (const param_binding_t &p : step.params) {
 			const tensor_value_t &meta = g.value(p.weight);
 			const double bound =
 				std::sqrt(1.0 / (meta.shape.rows + meta.shape.cols));
 			std::uniform_real_distribution<double> dist(-bound, bound);
-			dense_value_t weights(static_cast<size_t>(meta.shape.rows) *
-								  meta.shape.cols);
+			std::vector<double> weights(static_cast<size_t>(meta.shape.rows) *
+										meta.shape.cols);
 			for (double &w : weights) w = dist(rng);
 			state[p.name] =
 				pack_weights(weights, meta.shape.rows, meta.shape.cols,
 							 meta.row_packing, layout);
 			state[fmt::format("v_{}", p.name)] =
-				dense_value_t(static_cast<size_t>(layout.slots()), 0.0);
+				std::vector<double>(static_cast<size_t>(layout.slots()), 0.0);
 		}
 
 		const pack_format_t prediction_format =
@@ -127,7 +127,7 @@ int main(int argc, char **argv) {
 
 				for (int b = 0; b < config.batch_size; ++b) {
 					const size_t index = start + static_cast<size_t>(b);
-					const dense_value_t one_hot_label =
+					const std::vector<double> one_hot_label =
 						one_hot(data.y[index], config.num_classes);
 					const std::string x_name = fmt::format("x_{}", b);
 					inputs[lowered.arguments[argument_index.at(x_name)]] =
@@ -147,7 +147,7 @@ int main(int argc, char **argv) {
 					}
 				}
 
-				const std::vector<dense_value_t> values =
+				const std::vector<std::vector<double>> values =
 					evaluate(lowered.graph, inputs);
 
 				// The step returns the refreshed state; feed it back in.
@@ -160,7 +160,7 @@ int main(int argc, char **argv) {
 
 				const size_t prediction_base = 2 * step.params.size();
 				for (int b = 0; b < config.batch_size; ++b) {
-					const dense_value_t scores = unpack_vector(
+					const std::vector<double> scores = unpack_vector(
 						values[lowered.results[prediction_base +
 											   static_cast<size_t>(b)]],
 						prediction_format, layout, config.num_classes);

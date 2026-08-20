@@ -9,27 +9,29 @@
 namespace reboot {
 namespace {
 
-dense_value_t zip(const dense_value_t &a, const dense_value_t &b, double sign) {
+std::vector<double> zip(const std::vector<double> &a,
+						const std::vector<double> &b, double sign) {
 	if (a.size() != b.size())
 		throw std::runtime_error("elementwise operands differ in size");
-	dense_value_t out(a.size());
+	std::vector<double> out(a.size());
 	for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] + sign * b[i];
 	return out;
 }
 
-dense_value_t product(const dense_value_t &a, const dense_value_t &b) {
+std::vector<double> product(const std::vector<double> &a,
+							const std::vector<double> &b) {
 	if (a.size() != b.size())
 		throw std::runtime_error("elementwise operands differ in size");
-	dense_value_t out(a.size());
+	std::vector<double> out(a.size());
 	for (size_t i = 0; i < a.size(); ++i) out[i] = a[i] * b[i];
 	return out;
 }
 
 }  // namespace
 
-std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
-									const tensor_inputs_t &inputs) {
-	std::vector<dense_value_t> values(graph.size());
+std::vector<std::vector<double>> evaluate(const tensor_graph_t &graph,
+										  const tensor_inputs_t &inputs) {
+	std::vector<std::vector<double>> values(graph.size());
 
 	for (value_id_t id : graph.topological_order()) {
 		const tensor_value_t &v = graph.value(id);
@@ -51,10 +53,11 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 			}
 
 			case tensor_op_t::matmul: {
-				const dense_value_t &x = values[v.inputs[0]];
-				const dense_value_t &w = values[v.inputs[1]];
+				const std::vector<double> &x = values[v.inputs[0]];
+				const std::vector<double> &w = values[v.inputs[1]];
 				const tensor_value_t &wv = graph.value(v.inputs[1]);
-				dense_value_t out(static_cast<size_t>(wv.shape.cols), 0.0);
+				std::vector<double> out(static_cast<size_t>(wv.shape.cols),
+										0.0);
 				for (int j = 0; j < wv.shape.cols; ++j)
 					for (int i = 0; i < wv.shape.rows; ++i)
 						out[static_cast<size_t>(j)] +=
@@ -65,10 +68,11 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 			}
 
 			case tensor_op_t::matmul_transposed: {
-				const dense_value_t &g = values[v.inputs[0]];
-				const dense_value_t &w = values[v.inputs[1]];
+				const std::vector<double> &g = values[v.inputs[0]];
+				const std::vector<double> &w = values[v.inputs[1]];
 				const tensor_value_t &wv = graph.value(v.inputs[1]);
-				dense_value_t out(static_cast<size_t>(wv.shape.rows), 0.0);
+				std::vector<double> out(static_cast<size_t>(wv.shape.rows),
+										0.0);
 				for (int i = 0; i < wv.shape.rows; ++i)
 					for (int j = 0; j < wv.shape.cols; ++j)
 						out[static_cast<size_t>(i)] +=
@@ -79,9 +83,9 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 			}
 
 			case tensor_op_t::outer: {
-				const dense_value_t &a = values[v.inputs[0]];
-				const dense_value_t &b = values[v.inputs[1]];
-				dense_value_t out(a.size() * b.size(), 0.0);
+				const std::vector<double> &a = values[v.inputs[0]];
+				const std::vector<double> &b = values[v.inputs[1]];
+				std::vector<double> out(a.size() * b.size(), 0.0);
 				for (size_t i = 0; i < a.size(); ++i)
 					for (size_t j = 0; j < b.size(); ++j)
 						out[i * b.size() + j] = a[i] * b[j];
@@ -100,13 +104,13 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 				values[id] = product(values[v.inputs[0]], values[v.inputs[1]]);
 				break;
 			case tensor_op_t::scale: {
-				dense_value_t out = values[v.inputs[0]];
+				std::vector<double> out = values[v.inputs[0]];
 				for (double &x : out) x *= v.scalar;
 				values[id] = std::move(out);
 				break;
 			}
 			case tensor_op_t::add_scalar: {
-				dense_value_t out = values[v.inputs[0]];
+				std::vector<double> out = values[v.inputs[0]];
 				for (double &x : out) x += v.scalar;
 				values[id] = std::move(out);
 				break;
@@ -115,15 +119,15 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 				values[id] = product(values[v.inputs[0]], values[v.inputs[0]]);
 				break;
 			case tensor_op_t::poly_relu: {
-				dense_value_t out = values[v.inputs[0]];
+				std::vector<double> out = values[v.inputs[0]];
 				for (double &x : out) x = x * x + x;
 				values[id] = std::move(out);
 				break;
 			}
 			case tensor_op_t::poly_relu_grad: {
-				const dense_value_t &g = values[v.inputs[0]];
-				const dense_value_t &x = values[v.inputs[1]];
-				dense_value_t out(g.size());
+				const std::vector<double> &g = values[v.inputs[0]];
+				const std::vector<double> &x = values[v.inputs[1]];
+				std::vector<double> out(g.size());
 				for (size_t i = 0; i < g.size(); ++i)
 					out[i] = g[i] * (2.0 * x[i] + 1.0);
 				values[id] = std::move(out);
@@ -138,10 +142,10 @@ std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
 	return values;
 }
 
-std::vector<dense_value_t> evaluate(const slot_graph_t &graph,
-									const slot_inputs_t &inputs) {
+std::vector<std::vector<double>> evaluate(const slot_graph_t &graph,
+										  const slot_inputs_t &inputs) {
 	const int slots = graph.layout().slots();
-	std::vector<dense_value_t> values(graph.size());
+	std::vector<std::vector<double>> values(graph.size());
 
 	for (const slot_value_t &v : graph.values()) {
 		switch (v.op) {
@@ -150,7 +154,7 @@ std::vector<dense_value_t> evaluate(const slot_graph_t &graph,
 				if (it == inputs.end())
 					throw std::runtime_error(fmt::format(
 						"no value supplied for argument '{}'", v.name));
-				dense_value_t value = it->second;
+				std::vector<double> value = it->second;
 				value.resize(static_cast<size_t>(slots), 0.0);
 				values[v.id] = std::move(value);
 				break;
@@ -177,14 +181,14 @@ std::vector<dense_value_t> evaluate(const slot_graph_t &graph,
 						graph.constants().at(v.constant).values, 1.0);
 				break;
 			case slot_op_t::mul_scalar: {
-				dense_value_t out = values[v.inputs[0]];
+				std::vector<double> out = values[v.inputs[0]];
 				for (double &x : out) x *= v.scalar;
 				values[v.id] = std::move(out);
 				break;
 			}
 			case slot_op_t::rotate: {
-				const dense_value_t &in = values[v.inputs[0]];
-				dense_value_t out(in.size());
+				const std::vector<double> &in = values[v.inputs[0]];
+				std::vector<double> out(in.size());
 				const int n = static_cast<int>(in.size());
 				const int shift = ((v.rotation % n) + n) % n;
 				for (int i = 0; i < n; ++i)

@@ -23,19 +23,18 @@
 
 namespace reboot {
 
-// Dense value of a tensor node: a vector of length cols, or a rows x cols
-// matrix in row-major order.
-using dense_value_t = std::vector<double>;
-using tensor_inputs_t = std::map<value_id_t, dense_value_t>;
-using slot_inputs_t = std::map<slot_id_t, dense_value_t>;
+// A dense node value is a plain vector of doubles: a vector of length cols, or
+// a rows x cols matrix in row-major order.
+using tensor_inputs_t = std::map<value_id_t, std::vector<double>>;
+using slot_inputs_t = std::map<slot_id_t, std::vector<double>>;
 
 // Evaluate every node of the tensor graph; leaves must appear in `inputs`.
-std::vector<dense_value_t> evaluate(const tensor_graph_t &graph,
-									const tensor_inputs_t &inputs);
+std::vector<std::vector<double>> evaluate(const tensor_graph_t &graph,
+										  const tensor_inputs_t &inputs);
 
 // Evaluate every node of the slot graph; arguments must appear in `inputs`.
-std::vector<dense_value_t> evaluate(const slot_graph_t &graph,
-									const slot_inputs_t &inputs);
+std::vector<std::vector<double>> evaluate(const slot_graph_t &graph,
+										  const slot_inputs_t &inputs);
 
 }  // namespace reboot
 

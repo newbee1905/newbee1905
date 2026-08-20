@@ -35,14 +35,16 @@ void check(bool condition, const std::string &what) {
 	}
 }
 
-dense_value_t random_dense(size_t n, std::mt19937 &rng, double scale = 0.5) {
+std::vector<double> random_dense(size_t n, std::mt19937 &rng,
+								 double scale = 0.5) {
 	std::uniform_real_distribution<double> dist(-scale, scale);
-	dense_value_t v(n);
+	std::vector<double> v(n);
 	for (double &x : v) x = dist(rng);
 	return v;
 }
 
-double rss(const dense_value_t &prediction, const dense_value_t &label) {
+double rss(const std::vector<double> &prediction,
+		   const std::vector<double> &label) {
 	double sum = 0.0;
 	for (size_t i = 0; i < prediction.size(); ++i) {
 		const double d = prediction[i] - label[i];
@@ -76,9 +78,9 @@ void test_chain_rule() {
 	inputs[w1] = random_dense(12, rng);
 	inputs[w2] = random_dense(6, rng);
 
-	const std::vector<dense_value_t> values = evaluate(g, inputs);
-	const dense_value_t analytic_w1 = values[grads.at(w1)];
-	const dense_value_t analytic_w2 = values[grads.at(w2)];
+	const std::vector<std::vector<double>> values = evaluate(g, inputs);
+	const std::vector<double> analytic_w1 = values[grads.at(w1)];
+	const std::vector<double> analytic_w2 = values[grads.at(w2)];
 
 	const double eps = 1e-6;
 	auto finite_difference = [&](value_id_t param, size_t index) {
@@ -127,21 +129,21 @@ void test_gradient_locality() {
 		const size_t n = static_cast<size_t>(v.shape.rows) * v.shape.cols;
 		// Velocities start at zero, which is what makes a single Nesterov rule
 		// reproduce ReBoot's separate first-step branch.
-		inputs[id] = v.name.rfind("v_", 0) == 0 ? dense_value_t(n, 0.0)
+		inputs[id] = v.name.rfind("v_", 0) == 0 ? std::vector<double>(n, 0.0)
 												: random_dense(n, rng, 0.4);
 	}
 
-	const std::vector<dense_value_t> values = evaluate(g, inputs);
+	const std::vector<std::vector<double>> values = evaluate(g, inputs);
 
 	// The gradient the autograd pass produced for the first block's forward
 	// weights.
 	const param_binding_t &block0 = step.params.at(0);
 	check(block0.name == "w_fwd_0", "first parameter is the first block");
-	const dense_value_t analytic = values[block0.gradient];
+	const std::vector<double> analytic = values[block0.gradient];
 
 	const double eps = 1e-6;
 	auto loss_of = [&](const tensor_inputs_t &in, size_t which) {
-		const std::vector<dense_value_t> v = evaluate(g, in);
+		const std::vector<std::vector<double>> v = evaluate(g, in);
 		return rss(v[step.losses[which].prediction],
 				   in.at(step.losses[which].label));
 	};
@@ -190,19 +192,19 @@ void test_output_layer_gradient() {
 	for (value_id_t id : step.arguments) {
 		const tensor_value_t &v = g.value(id);
 		const size_t n = static_cast<size_t>(v.shape.rows) * v.shape.cols;
-		inputs[id] = v.name.rfind("v_", 0) == 0 ? dense_value_t(n, 0.0)
+		inputs[id] = v.name.rfind("v_", 0) == 0 ? std::vector<double>(n, 0.0)
 												: random_dense(n, rng, 0.4);
 	}
 
 	const param_binding_t &out = step.params.back();
 	check(out.name == "w_out", "last parameter is the output layer");
-	const dense_value_t analytic = evaluate(g, inputs)[out.gradient];
+	const std::vector<double> analytic = evaluate(g, inputs)[out.gradient];
 
 	// The output weights only take part in the top loss, and both samples of
 	// the batch contribute - so this also checks gradient accumulation.
 	const double eps = 1e-6;
 	auto top_loss = [&](const tensor_inputs_t &in) {
-		const std::vector<dense_value_t> v = evaluate(g, in);
+		const std::vector<std::vector<double>> v = evaluate(g, in);
 		double sum = 0.0;
 		for (const loss_term_t &term : step.losses)
 			if (term.name.rfind("output_", 0) == 0)
